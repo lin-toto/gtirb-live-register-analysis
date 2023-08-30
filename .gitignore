@@ -1,0 +1,12 @@
+# Python files and directories
+*.pyc
+__pycache__/
+.mypy_cache/
+/*.egg-info/
+/build/
+/dist/
+/venv/
+
+# IDE files and directories
+/.vscode/
+/.idea/
