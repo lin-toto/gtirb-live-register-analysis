@@ -1,7 +1,11 @@
 class X64:
+    ALL_REGISTERS = {"rax", "rbx", "rcx", "rdx", "rdi", "rsi", "rbp", "rsp",
+                     "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"}
+
     ARGUMENT_REGISTERS = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"}
-    CALLEE_PRESERVED_REGISTERS = set()#{"rbx", "rsp", "rbp", "r12", "r13", "r14", "r15"}
-    RETURN_REGISTERS = set()#{"rax", "rdx"}
+    CALLER_PRESERVED_REGISTERS = {"rax", "rcx", "rdx", "rdi", "rsi", "r8", "r9", "r10", "r11"}
+    CALLEE_PRESERVED_REGISTERS = {"rbx", "rsp", "rbp", "r12", "r13", "r14", "r15"}
+    RETURN_REGISTERS = {"rax", "rdx"}
 
     FULL_REGISTERS_MAP = {'ah': 'rax', 'al': 'rax', 'ax': 'rax', 'eax': 'rax', 'rax': 'rax',
                           'bh': 'rbx', 'bl': 'rbx', 'bx': 'rbx', 'ebx': 'rbx', 'rbx': 'rbx',
@@ -19,4 +23,4 @@ class X64:
                           'r13': 'r13', 'r13b': 'r13', 'r13d': 'r13', 'r13w': 'r13',
                           'r14': 'r14', 'r14b': 'r14', 'r14d': 'r14', 'r14w': 'r14',
                           'r15': 'r15', 'r15b': 'r15', 'r15d': 'r15', 'r15w': 'r15',
-                          'rflags': 'rflags'}
+                          'rflags': 'rflags', 'rip': 'rip'}

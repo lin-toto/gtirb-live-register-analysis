@@ -58,8 +58,8 @@ class LiveRegisterAnalysis:
                 successors = [(block, instructions, instruction_idx + 1)]
             out_regs = set().union(*[self._get_in_regs(*x) for x in successors])
 
-        gen_regs = self._reg_ids_to_full_name(instruction, instruction.regs_access()[0])
-        kill_regs = self._reg_ids_to_full_name(instruction, instruction.regs_access()[1]).difference(gen_regs)
+        gen_regs = self._instruction_regs_read(instruction)
+        kill_regs = self._instruction_regs_write(instruction).difference(gen_regs)
         in_regs = gen_regs.union(out_regs.difference(kill_regs))
         changed = self._set_in_regs(block, instructions, instruction_idx, in_regs)
 
@@ -71,6 +71,20 @@ class LiveRegisterAnalysis:
                         self.queue.append((e.source, source_instructions, len(source_instructions) - 1))
             else:
                 self.queue.append((block, instructions, instruction_idx - 1))
+
+    def _instruction_regs_read(self, instruction: CsInsn):
+        regs_read = self._reg_ids_to_full_name(instruction, instruction.regs_access()[0])
+        if instruction.mnemonic == "call":
+            regs_read = regs_read.union(self.ISA.ARGUMENT_REGISTERS)
+
+        return regs_read
+
+    def _instruction_regs_write(self, instruction: CsInsn):
+        regs_write = self._reg_ids_to_full_name(instruction, instruction.regs_access()[1])
+        if instruction.mnemonic == "call":
+            regs_write = regs_write.union(self.ISA.CALLER_PRESERVED_REGISTERS)
+
+        return regs_write
 
     def _reg_ids_to_full_name(self, instruction: CsInsn, reg_ids: List[int]) -> set:
         return set([self.ISA.FULL_REGISTERS_MAP[instruction.reg_name(x)] for x in reg_ids])
