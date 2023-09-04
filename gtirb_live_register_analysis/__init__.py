@@ -1,1 +1,1 @@
-from gtirb_live_register_analysis.manager import LiveRegisterManager
+from .manager import LiveRegisterManager

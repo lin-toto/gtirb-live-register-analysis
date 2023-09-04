@@ -9,9 +9,9 @@ from gtirb_rewriting.assembly import Register
 from gtirb_rewriting.patch import Constraints, InsertionContext
 from typing import Optional, Dict, List, Set
 
-from gtirb_live_register_analysis.utils.instruction_decoder import CachedGtirbInstructionDecoder
-from gtirb_live_register_analysis.analysis import LiveRegisterAnalyzer
-from gtirb_live_register_analysis.abi import _X86_64_ELF
+from gtirb_live_register_analysis.utils import CachedGtirbInstructionDecoder
+from .analysis import LiveRegisterAnalyzer
+from .abi import _X86_64_ELF
 
 
 class NotEnoughFreeRegistersException(Exception):

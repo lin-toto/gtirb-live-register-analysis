@@ -5,7 +5,7 @@ from gtirb_functions import Function
 from gtirb_capstone.instructions import GtirbInstructionDecoder
 from gtirb_rewriting.assembly import Register
 
-from gtirb_live_register_analysis.abi import AnalysisAwareABI
+from .abi import AnalysisAwareABI
 
 from capstone_gt import CsInsn
 from collections import deque
