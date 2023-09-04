@@ -5,27 +5,23 @@ from gtirb_functions import Function
 from gtirb_capstone.instructions import GtirbInstructionDecoder
 from gtirb_rewriting.assembly import Register
 
-from gtirb_live_register_analysis.abi import _X86_64_ELF
-from gtirb_live_register_analysis.utils.instruction_decoder import CachedGtirbInstructionDecoder
+from gtirb_live_register_analysis.abi import AnalysisAwareABI
 
 from capstone_gt import CsInsn
 from collections import deque
 from typing import Optional, List, Dict, Set
 
 
-class Analysis:
-    # TODO: support different ISAs
-    abi = _X86_64_ELF()
-
+class LiveRegisterAnalyzer:
+    abi: AnalysisAwareABI
     decoder: GtirbInstructionDecoder
 
     function: Function
     queue: deque
     in_regs: Dict[uuid.UUID, List[Set[Register]]]
 
-    def __init__(self, isa: gtirb.Module.ISA, decoder: Optional[GtirbInstructionDecoder] = None):
-        if decoder is None:
-            decoder = CachedGtirbInstructionDecoder(isa)
+    def __init__(self, abi: AnalysisAwareABI, decoder: GtirbInstructionDecoder):
+        self.abi = abi
         self.decoder = decoder
 
     def analyze(self, function: Function) -> Dict[uuid.UUID, List[Set[Register]]]:
@@ -53,7 +49,8 @@ class Analysis:
             out_regs = self.abi.return_registers().union(self.abi.callee_saved_registers())
         else:
             if instruction_idx == len(instructions) - 1:
-                successors = [(e.target, list(self.decoder.get_instructions(e.target)), 0) for e in block.outgoing_edges]
+                successors = [(e.target, list(self.decoder.get_instructions(e.target)), 0)
+                              for e in block.outgoing_edges if isinstance(e.target, gtirb.CodeBlock)]
             else:
                 successors = [(block, instructions, instruction_idx + 1)]
             out_regs = set().union(*[self._get_in_regs(*x) for x in successors])
@@ -74,6 +71,7 @@ class Analysis:
 
     def _instruction_regs_read(self, instruction: CsInsn) -> Set[Register]:
         regs_read = self._reg_ids_to_registers(instruction, instruction.regs_access()[0])
+        # TODO: handle call properly
         if instruction.mnemonic == "call":
             regs_read = regs_read.union(self.abi.calling_convention_registers())
 

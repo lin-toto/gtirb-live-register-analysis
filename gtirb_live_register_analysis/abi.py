@@ -20,12 +20,14 @@ class AnalysisAwareABI(ABI):
 
 class _X86_64_ELF(_X86_64_ELF_BASE, AnalysisAwareABI):
     def all_registers(self) -> List[Register]:
-
         return super().all_registers() + [
             Register({"8l": "bpl", "16": "bp", "32": "ebp", "64": "rbp"}, "64"),
             Register({"8l": "spl", "16": "sp", "32": "esp", "64": "rsp"}, "64"),
             Register({"64": "rflags"}, "64")  # Add a fake RFLAGS register to allow its analysis
         ]
+
+    def _scratch_registers(self) -> List[Register]:
+        return super().all_registers()
 
     def caller_saved_registers(self) -> Set[Register]:
         return super().caller_saved_registers().union({self.get_register("RFLAGS")})
