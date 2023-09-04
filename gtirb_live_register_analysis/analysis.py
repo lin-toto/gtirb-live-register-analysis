@@ -1,34 +1,34 @@
-import functools
 import uuid
 
 import gtirb
 from gtirb_functions import Function
 from gtirb_capstone.instructions import GtirbInstructionDecoder
+from gtirb_rewriting.assembly import Register
 
-from gtirb_live_register_analysis.isa.x64 import X64
+from gtirb_live_register_analysis.abi import _X86_64_ELF
 from gtirb_live_register_analysis.utils.instruction_decoder import CachedGtirbInstructionDecoder
 
 from capstone_gt import CsInsn
-from collections import defaultdict, deque
+from collections import deque
 from typing import Optional, List, Dict, Set
 
 
-class LiveRegisterAnalysis:
+class Analysis:
     # TODO: support different ISAs
-    ISA = X64
+    abi = _X86_64_ELF()
 
     decoder: GtirbInstructionDecoder
 
     function: Function
     queue: deque
-    in_regs: Dict[uuid.UUID, List[Set[str]]]
+    in_regs: Dict[uuid.UUID, List[Set[Register]]]
 
     def __init__(self, isa: gtirb.Module.ISA, decoder: Optional[GtirbInstructionDecoder] = None):
         if decoder is None:
             decoder = CachedGtirbInstructionDecoder(isa)
         self.decoder = decoder
 
-    def analyze(self, function: Function) -> Dict[uuid.UUID, List[Set[str]]]:
+    def analyze(self, function: Function) -> Dict[uuid.UUID, List[Set[Register]]]:
         self.function = function
         self.queue = deque()
         self.in_regs = dict()
@@ -50,7 +50,7 @@ class LiveRegisterAnalysis:
 
         if block in self.function.get_exit_blocks() and instruction_idx == len(instructions) - 1:
             # is return instruction
-            out_regs = self.ISA.RETURN_REGISTERS.union(self.ISA.CALLEE_PRESERVED_REGISTERS)
+            out_regs = self.abi.return_registers().union(self.abi.callee_saved_registers())
         else:
             if instruction_idx == len(instructions) - 1:
                 successors = [(e.target, list(self.decoder.get_instructions(e.target)), 0) for e in block.outgoing_edges]
@@ -72,29 +72,31 @@ class LiveRegisterAnalysis:
             else:
                 self.queue.append((block, instructions, instruction_idx - 1))
 
-    def _instruction_regs_read(self, instruction: CsInsn):
-        regs_read = self._reg_ids_to_full_name(instruction, instruction.regs_access()[0])
+    def _instruction_regs_read(self, instruction: CsInsn) -> Set[Register]:
+        regs_read = self._reg_ids_to_registers(instruction, instruction.regs_access()[0])
         if instruction.mnemonic == "call":
-            regs_read = regs_read.union(self.ISA.ARGUMENT_REGISTERS)
+            regs_read = regs_read.union(self.abi.calling_convention_registers())
 
         return regs_read
 
-    def _instruction_regs_write(self, instruction: CsInsn):
-        regs_write = self._reg_ids_to_full_name(instruction, instruction.regs_access()[1])
+    def _instruction_regs_write(self, instruction: CsInsn) -> Set[Register]:
+        regs_write = self._reg_ids_to_registers(instruction, instruction.regs_access()[1])
         if instruction.mnemonic == "call":
-            regs_write = regs_write.union(self.ISA.CALLER_PRESERVED_REGISTERS)
+            regs_write = regs_write.union(self.abi.caller_saved_registers())
 
         return regs_write
 
-    def _reg_ids_to_full_name(self, instruction: CsInsn, reg_ids: List[int]) -> set:
-        return set([self.ISA.FULL_REGISTERS_MAP[instruction.reg_name(x)] for x in reg_ids])
+    def _reg_ids_to_registers(self, instruction: CsInsn, reg_ids: List[int]) -> Set[Register]:
+        return set([self.abi.get_register(instruction.reg_name(x)) for x in reg_ids
+                    if instruction.reg_name(x) in self.abi._register_map])
 
-    def _get_in_regs(self, block: gtirb.CodeBlock, instructions: List[CsInsn], instruction_idx: int) -> Set[str]:
+    def _get_in_regs(self, block: gtirb.CodeBlock, instructions: List[CsInsn], instruction_idx: int) -> Set[Register]:
         if block.uuid not in self.in_regs:
             self.in_regs[block.uuid] = [set()] * len(instructions)
         return self.in_regs[block.uuid][instruction_idx]
 
-    def _set_in_regs(self, block: gtirb.CodeBlock, instructions: List[CsInsn], instruction_idx: int, in_regs: set) -> bool:
+    def _set_in_regs(self, block: gtirb.CodeBlock, instructions: List[CsInsn], instruction_idx: int,
+                     in_regs: Set[Register]) -> bool:
         old_in_regs = self._get_in_regs(block, instructions, instruction_idx)
         self.in_regs[block.uuid][instruction_idx] = in_regs
 
