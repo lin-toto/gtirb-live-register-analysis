@@ -11,7 +11,7 @@ from typing import Optional, Dict, List, Set
 
 from gtirb_live_register_analysis.utils import CachedGtirbInstructionDecoder
 from .analysis import LiveRegisterAnalyzer
-from .abi import _X86_64_ELF
+from .abi import AnalysisAwareABI, _X86_64_ELF
 
 
 class NotEnoughFreeRegistersException(Exception):
@@ -19,17 +19,17 @@ class NotEnoughFreeRegistersException(Exception):
 
 
 class LiveRegisterManager:
-    # TODO: support different ISAs
-    abi = _X86_64_ELF()
-
     module: gtirb.Module
+    abi: AnalysisAwareABI
     analyzer: LiveRegisterAnalyzer
 
     #  usage: result_cache[function_uuid][block_uuid][instruction_idx]
     result_cache: Dict[uuid.UUID, Dict[uuid.UUID, List[Set[Register]]]] = dict()
 
-    def __init__(self, module: gtirb.Module, decoder: Optional[GtirbInstructionDecoder] = None):
+    def __init__(self, module: gtirb.Module, abi: AnalysisAwareABI = _X86_64_ELF(),
+                 decoder: Optional[GtirbInstructionDecoder] = None):
         self.module = module
+        self.abi = abi
 
         if decoder is None:
             decoder = CachedGtirbInstructionDecoder(module.isa)
