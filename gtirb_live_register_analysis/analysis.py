@@ -60,6 +60,10 @@ class LiveRegisterAnalyzer:
         in_regs = gen_regs.union(out_regs.difference(kill_regs))
         changed = self._set_in_regs(block, instructions, instruction_idx, in_regs)
 
+        if instruction.mnemonic == "movups" and instruction.op_str == "xmmword ptr [rax], xmm6":
+            print(instruction)
+            print([r.name for r in self._get_in_regs(block, instructions, instruction_idx)])
+
         if changed:
             if instruction_idx == 0:
                 if block not in self.function.get_entry_blocks():
@@ -79,8 +83,8 @@ class LiveRegisterAnalyzer:
 
     def _instruction_regs_write(self, instruction: CsInsn) -> Set[Register]:
         regs_write = self._reg_ids_to_registers(instruction, instruction.regs_access()[1])
-        if instruction.mnemonic == "call":
-            regs_write = regs_write.union(self.abi.caller_saved_registers())
+        #if instruction.mnemonic == "call":
+        #    regs_write = regs_write.union(self.abi.caller_saved_registers())
 
         return regs_write
 

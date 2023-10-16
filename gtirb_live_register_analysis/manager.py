@@ -9,7 +9,7 @@ from gtirb_rewriting.assembly import Register
 from gtirb_rewriting.patch import Constraints, InsertionContext
 from typing import Optional, Dict, List, Set
 
-from gtirb_live_register_analysis.utils import CachedGtirbInstructionDecoder
+from .utils import CachedGtirbInstructionDecoder
 from .analysis import LiveRegisterAnalyzer
 from .abi import AnalysisAwareABI, _X86_64_ELF
 
