@@ -60,10 +60,6 @@ class LiveRegisterAnalyzer:
         in_regs = gen_regs.union(out_regs.difference(kill_regs))
         changed = self._set_in_regs(block, instructions, instruction_idx, in_regs)
 
-        if instruction.mnemonic == "movups" and instruction.op_str == "xmmword ptr [rax], xmm6":
-            print(instruction)
-            print([r.name for r in self._get_in_regs(block, instructions, instruction_idx)])
-
         if changed:
             if instruction_idx == 0:
                 if block not in self.function.get_entry_blocks():
