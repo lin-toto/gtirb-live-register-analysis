@@ -77,7 +77,9 @@ class LiveRegisterManager:
             if constraints.scratch_registers > 0 and not allow_fallback:
                 raise NotEnoughFreeRegistersException()
 
-            self.add_live_registers(function, block, instruction_idx, set(assigned_registers))
+            # We actually assume the patches are independent from each other;
+            # so there's no need to update the live registers.
+            # self.add_live_registers(function, block, instruction_idx, set(assigned_registers))
 
             def func_wrapper(ctx: InsertionContext):
                 ctx.scratch_registers += assigned_registers
