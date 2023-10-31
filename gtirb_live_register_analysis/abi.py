@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from gtirb_rewriting.abi import ABI, _X86_64_ELF as _X86_64_ELF_BASE
 from gtirb_rewriting.assembly import Register
-from typing import Set, List
+from typing import Set, List, Optional
 
 
 class AnalysisAwareABI(ABI):
@@ -15,6 +15,9 @@ class AnalysisAwareABI(ABI):
         return set(self.all_registers()).difference(self.caller_saved_registers())
 
     def return_registers(self) -> Set[Register]:
+        raise NotImplementedError
+
+    def flag_register(self) -> Optional[Register]:
         raise NotImplementedError
 
 
@@ -37,4 +40,7 @@ class _X86_64_ELF(_X86_64_ELF_BASE, AnalysisAwareABI):
             self.get_register(name)
             for name in ("RAX", "RDX")
         }
+
+    def flag_register(self) -> Optional[Register]:
+        return self.get_register("RFLAGS")
 

@@ -79,7 +79,7 @@ class LiveRegisterAnalyzer:
 
     def _instruction_regs_write(self, instruction: CsInsn) -> Set[Register]:
         regs_write = self._reg_ids_to_registers(instruction, instruction.regs_access()[1])
-        #if instruction.mnemonic == "call":
+        # if instruction.mnemonic == "call":
         #    regs_write = regs_write.union(self.abi.caller_saved_registers())
 
         return regs_write

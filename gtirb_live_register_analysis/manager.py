@@ -63,6 +63,7 @@ class LiveRegisterManager:
         :param allow_fallback: allows falling back to push original register contents to stack when there
                                are not enough free registers. If false, an exception will be raised.
         """
+
         def patch_func_decorator(f):
             assert hasattr(f, "constraints"), "Constraints of function patch are not set"
             constraints: Constraints = copy.deepcopy(f.constraints)
@@ -77,9 +78,9 @@ class LiveRegisterManager:
             if constraints.scratch_registers > 0 and not allow_fallback:
                 raise NotEnoughFreeRegistersException()
 
-            # We actually assume the patches are independent from each other;
-            # so there's no need to update the live registers.
-            # self.add_live_registers(function, block, instruction_idx, set(assigned_registers))
+            if constraints.clobbers_flags and \
+                    self.abi.flag_register() not in self.live_registers(function, block, instruction_idx):
+                constraints.clobbers_flags = False
 
             def func_wrapper(ctx: InsertionContext):
                 ctx.scratch_registers += assigned_registers
