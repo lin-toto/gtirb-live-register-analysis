@@ -41,7 +41,7 @@ class _X86_64_ELF(_X86_64_ELF_BASE, AnalysisAwareABI):
 
     def calling_convention(self) -> CallingConventionDesc:
         calling_convention = super().calling_convention()
-        calling_convention.registers += [self.get_register(f"xmm{i}") for i in range(0, 8)]
+        calling_convention.registers += tuple(f"xmm{i}" for i in range(0, 8))
 
         return calling_convention
 
