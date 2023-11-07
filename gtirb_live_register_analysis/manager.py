@@ -45,7 +45,8 @@ class LiveRegisterManager:
         assert function.uuid in self.result_cache, "Live registers of function have not been analyzed"
 
         if block.uuid not in self.result_cache[function.uuid]:
-            return set()
+            # If a block is not analyzed for some reason, we conservatively disable live register analysis
+            return set(self.abi.all_registers())
 
         return self.result_cache[function.uuid][block.uuid][instruction_idx]
 
