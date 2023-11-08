@@ -34,6 +34,9 @@ class LiveRegisterAnalyzer:
 
         while len(self.queue) > 0:
             block, instructions, instruction_idx = self.queue.popleft()
+            if block not in function.get_all_blocks():
+                continue
+
             if instruction_idx is None:
                 instructions = list(self.decoder.get_instructions(block))
                 instruction_idx = len(instructions) - 1
@@ -64,6 +67,9 @@ class LiveRegisterAnalyzer:
             if instruction_idx == 0:
                 if block not in self.function.get_entry_blocks():
                     for e in block.incoming_edges:
+                        if e.label.type in (gtirb.EdgeType.Call, gtirb.EdgeType.Return):
+                            continue
+
                         source_instructions = list(self.decoder.get_instructions(e.source))
                         self.queue.append((e.source, source_instructions, len(source_instructions) - 1))
             else:

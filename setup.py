@@ -7,7 +7,7 @@ if __name__ == "__main__":
 
     setuptools.setup(
         name="gtirb-live-register-analysis",
-        version="0.0.7",
+        version="0.0.8",
         author="Fangzheng Lin",
         author_email="csl@lunlimited.net",
         description="Utilities for dealing with live register analysis in GTIRB functions",
