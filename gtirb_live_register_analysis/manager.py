@@ -27,13 +27,14 @@ class LiveRegisterManager:
     result_cache: Dict[uuid.UUID, Dict[uuid.UUID, List[Set[Register]]]] = dict()
 
     def __init__(self, module: gtirb.Module, abi: AnalysisAwareABI = _X86_64_ELF(),
-                 decoder: Optional[GtirbInstructionDecoder] = None):
+                 decoder: Optional[GtirbInstructionDecoder] = None, *,
+                 analysis_scope: str = "function"):
         self.module = module
         self.abi = abi
 
         if decoder is None:
             decoder = CachedGtirbInstructionDecoder(module.isa)
-        self.analyzer = LiveRegisterAnalyzer(self.abi, decoder)
+        self.analyzer = LiveRegisterAnalyzer(self.abi, decoder, analysis_scope=analysis_scope)
 
     def analyze(self, function: Function):
         if function.uuid in self.result_cache:

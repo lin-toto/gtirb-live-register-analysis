@@ -15,21 +15,28 @@ from typing import Optional, List, Dict, Set
 class LiveRegisterAnalyzer:
     abi: AnalysisAwareABI
     decoder: GtirbInstructionDecoder
+    analysis_scope: str
 
     function: Function
     queue: deque
     in_regs: Dict[uuid.UUID, List[Set[Register]]]
 
-    def __init__(self, abi: AnalysisAwareABI, decoder: GtirbInstructionDecoder):
+    def __init__(self, abi: AnalysisAwareABI, decoder: GtirbInstructionDecoder, *,
+                 analysis_scope: str = "function"):
         self.abi = abi
         self.decoder = decoder
+
+        assert analysis_scope in ("function", "block")
+        self.analysis_scope = analysis_scope
 
     def analyze(self, function: Function) -> Dict[uuid.UUID, List[Set[Register]]]:
         self.function = function
         self.queue = deque()
         self.in_regs = dict()
 
-        for block in function.get_exit_blocks():
+        init_blocks = function.get_exit_blocks() if self.analysis_scope == "function" \
+                else function.get_all_blocks()
+        for block in init_blocks:
             self.queue.append((block, None, None))
 
         while len(self.queue) > 0:
@@ -47,16 +54,24 @@ class LiveRegisterAnalyzer:
     def _analyze_step(self, block: gtirb.CodeBlock, instructions: List[CsInsn], instruction_idx: int):
         instruction = instructions[instruction_idx]
 
-        if block in self.function.get_exit_blocks() and instruction_idx == len(instructions) - 1:
-            # is return instruction
-            out_regs = self.abi.return_registers().union(self.abi.callee_saved_registers())
-        else:
-            if instruction_idx == len(instructions) - 1:
-                successors = [(e.target, list(self.decoder.get_instructions(e.target)), 0)
-                              for e in block.outgoing_edges if isinstance(e.target, gtirb.CodeBlock)]
+        if self.analysis_scope == "function":
+            if block in self.function.get_exit_blocks() and instruction_idx == len(instructions) - 1:
+                # is return instruction
+                out_regs = self.abi.return_registers().union(self.abi.callee_saved_registers())
             else:
-                successors = [(block, instructions, instruction_idx + 1)]
-            out_regs = set().union(*[self._get_in_regs(*x) for x in successors])
+                if instruction_idx == len(instructions) - 1:
+                    successors = [(e.target, list(self.decoder.get_instructions(e.target)), 0) \
+                        for e in block.outgoing_edges if isinstance(e.target, gtirb.CodeBlock)]
+                else:
+                    successors = [(block, instructions, instruction_idx + 1)]
+                out_regs = set().union(*[self._get_in_regs(*x) for x in successors])
+        elif self.analysis_scope == "block":
+            if instruction_idx == len(instructions) - 1:
+                out_regs = set(self.abi.all_registers())
+            else:
+                out_regs = self._get_in_regs(block, instructions, instruction_idx + 1)
+        else:
+            raise NotImplementedError
 
         gen_regs = self._instruction_regs_read(instruction)
         kill_regs = self._instruction_regs_write(instruction).difference(gen_regs)
@@ -64,7 +79,7 @@ class LiveRegisterAnalyzer:
         changed = self._set_in_regs(block, instructions, instruction_idx, in_regs)
 
         if changed:
-            if instruction_idx == 0:
+            if instruction_idx == 0 and self.analysis_scope == "function":
                 if block not in self.function.get_entry_blocks():
                     for e in block.incoming_edges:
                         if e.label.type in (gtirb.EdgeType.Call, gtirb.EdgeType.Return):
