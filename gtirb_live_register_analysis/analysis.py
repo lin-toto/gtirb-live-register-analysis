@@ -102,7 +102,19 @@ class LiveRegisterAnalyzer:
         if instruction.mnemonic.startswith("cmov"):
             return set()
 
-        regs_write = self._reg_ids_to_registers(instruction, instruction.regs_access()[1])
+        regs_write = set()
+        for reg_id in instruction.regs_access()[1]:
+            reg_name = instruction.reg_name(reg_id)
+            if reg_name not in self.abi._register_map:
+                continue
+            
+            reg = self.abi.get_register(reg_name)
+            access_size = [int(size.rstrip('lh')) for size, name in reg.sizes.items() if name == reg_name][0]
+            if access_size <= 16:
+                continue
+            
+            regs_write.add(reg)
+
         # if instruction.mnemonic == "call":
         #    regs_write = regs_write.union(self.abi.caller_saved_registers())
 
