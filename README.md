@@ -10,6 +10,8 @@ patches.
 
 | ISA          | File Format |
 |--------------|-------------|
+| ARM64        | ELF         |
+| RISCV64      | ELF         |
 | X64 (x86-64) | ELF         |
 
 ## Getting Started

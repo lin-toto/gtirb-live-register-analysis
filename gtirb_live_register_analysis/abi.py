@@ -1,58 +1,47 @@
-from dataclasses import dataclass
-from gtirb_rewriting.abi import CallingConventionDesc, ABI, _X86_64_ELF as _X86_64_ELF_BASE
-from gtirb_rewriting.assembly import Register
-from typing import Set, List, Optional
+import gtirb
+
+from .abis import (
+    AnalysisAwareABI,
+    _AARCH64_ELF,
+    _ARM64_ELF,
+    _ARM64_ELF_BASE,
+    _RISCV64_ELF,
+    _X86_64_ELF,
+)
+from .module_info import module_isa_name
 
 
-class AnalysisAwareABI(ABI):
-    def calling_convention_registers(self) -> Set[Register]:
-        return {
-            self.get_register(name)
-            for name in self.calling_convention().registers
-        }
+def abi_for_module(module: gtirb.Module) -> AnalysisAwareABI:
+    if module.file_format != gtirb.Module.FileFormat.ELF:
+        raise NotImplementedError(f"Unsupported file format: {module.file_format}")
 
-    def callee_saved_registers(self) -> Set[Register]:
-        return set(self.all_registers()).difference(self.caller_saved_registers())
+    isa_name = module_isa_name(module)
+    if isa_name == "X64":
+        return _X86_64_ELF()
 
-    def return_registers(self) -> Set[Register]:
-        raise NotImplementedError
+    if isa_name in ("ARM64", "AARCH64"):
+        if _ARM64_ELF_BASE is None:
+            raise ImportError("gtirb-rewriting does not provide an ARM64 ELF ABI")
+        return _ARM64_ELF()
 
-    def flag_register(self) -> Optional[Register]:
-        raise NotImplementedError
+    if isa_name == "RISCV64":
+        return _RISCV64_ELF()
+    if isa_name in ("RISCV32", "RISCV"):
+        raise NotImplementedError(
+            "gtirb-live-register-analysis only supports RV64 RISC-V modules; "
+            "RV32 and generic RISCV modules are not supported"
+        )
+
+    raise NotImplementedError(
+        f"Unsupported ISA/file format pair: {isa_name}/{module.file_format}"
+    )
 
 
-class _X86_64_ELF(_X86_64_ELF_BASE, AnalysisAwareABI):
-    def all_registers(self) -> List[Register]:
-        registers = super().all_registers() + [
-            Register({"8l": "bpl", "16": "bp", "32": "ebp", "64": "rbp"}, "64"),
-            Register({"8l": "spl", "16": "sp", "32": "esp", "64": "rsp"}, "64"),
-            Register({"64": "rflags"}, "64")  # Add a fake RFLAGS register to allow its analysis
-        ]
-
-        for i in range(0, 31):
-            registers.append(Register({
-                "128": f"xmm{i}", "256": f"ymm{i}", "512": f"zmm{i}"
-            }, default_size="128"))
-
-        return registers
-
-    def _scratch_registers(self) -> List[Register]:
-        return super().all_registers()
-
-    def calling_convention(self) -> CallingConventionDesc:
-        calling_convention = super().calling_convention()
-        calling_convention.registers += tuple(f"xmm{i}" for i in range(0, 8))
-
-        return calling_convention
-
-    def caller_saved_registers(self) -> Set[Register]:
-        return super().caller_saved_registers().union({self.get_register("RFLAGS")})
-
-    def return_registers(self) -> Set[Register]:
-        return {
-            self.get_register(name)
-            for name in ("RAX", "RDX")
-        }
-
-    def flag_register(self) -> Optional[Register]:
-        return self.get_register("RFLAGS")
+__all__ = [
+    "AnalysisAwareABI",
+    "abi_for_module",
+    "_AARCH64_ELF",
+    "_ARM64_ELF",
+    "_RISCV64_ELF",
+    "_X86_64_ELF",
+]

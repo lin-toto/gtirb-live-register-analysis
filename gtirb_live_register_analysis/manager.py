@@ -1,7 +1,6 @@
 import gtirb
 import uuid
 import copy
-import itertools
 
 from gtirb_functions import Function
 from gtirb_capstone.instructions import GtirbInstructionDecoder
@@ -11,7 +10,7 @@ from typing import Optional, Dict, List, Set
 
 from .utils import CachedGtirbInstructionDecoder
 from .analysis import LiveRegisterAnalyzer
-from .abi import AnalysisAwareABI, _X86_64_ELF
+from .abi import AnalysisAwareABI, abi_for_module
 
 
 class NotEnoughFreeRegistersException(Exception):
@@ -24,13 +23,14 @@ class LiveRegisterManager:
     analyzer: LiveRegisterAnalyzer
 
     #  usage: result_cache[function_uuid][block_uuid][instruction_idx]
-    result_cache: Dict[uuid.UUID, Dict[uuid.UUID, List[Set[Register]]]] = dict()
+    result_cache: Dict[uuid.UUID, Dict[uuid.UUID, List[Set[Register]]]]
 
-    def __init__(self, module: gtirb.Module, abi: AnalysisAwareABI = _X86_64_ELF(),
+    def __init__(self, module: gtirb.Module, abi: Optional[AnalysisAwareABI] = None,
                  decoder: Optional[GtirbInstructionDecoder] = None, *,
                  analysis_scope: str = "function"):
         self.module = module
-        self.abi = abi
+        self.abi = abi if abi is not None else abi_for_module(module)
+        self.result_cache = dict()
 
         if decoder is None:
             decoder = CachedGtirbInstructionDecoder(module.isa)
@@ -49,7 +49,11 @@ class LiveRegisterManager:
             # If a block is not analyzed for some reason, we conservatively disable live register analysis
             return set(self.abi.all_registers())
 
-        return self.result_cache[function.uuid][block.uuid][instruction_idx]
+        block_registers = self.result_cache[function.uuid][block.uuid]
+        if instruction_idx >= len(block_registers):
+            return set(self.abi.all_registers())
+
+        return block_registers[instruction_idx]
 
     def add_live_registers(self, function: Function, block: gtirb.CodeBlock, instruction_idx: int,
                            registers: Set[Register]):
@@ -57,6 +61,12 @@ class LiveRegisterManager:
 
     def free_registers(self, function: Function, block: gtirb.CodeBlock, instruction_idx: int) -> Set[Register]:
         return set(self.abi._scratch_registers()).difference(self.live_registers(function, block, instruction_idx))
+
+    def _free_registers_ordered(self, function: Function, block: gtirb.CodeBlock,
+                                instruction_idx: int) -> List[Register]:
+        live_registers = self.live_registers(function, block, instruction_idx)
+        return [reg for reg in self.abi._scratch_registers()
+                if reg not in live_registers]
 
     def allocate_registers(self, function: Function, block: gtirb.CodeBlock, instruction_idx: int,
                            allow_fallback: bool = True):
@@ -69,10 +79,10 @@ class LiveRegisterManager:
         def patch_func_decorator(f):
             assert hasattr(f, "constraints"), "Constraints of function patch are not set"
             constraints: Constraints = copy.deepcopy(f.constraints)
-            free_registers = self.free_registers(function, block, instruction_idx)
+            free_registers = self._free_registers_ordered(function, block, instruction_idx)
 
             assignable_registers_count = min(len(free_registers), constraints.scratch_registers)
-            assigned_registers = list(itertools.islice(free_registers, assignable_registers_count))
+            assigned_registers = free_registers[:assignable_registers_count]
 
             # Update the constraint so the remaining scratch registers will fall back to the rewriter
             constraints.scratch_registers -= assignable_registers_count
