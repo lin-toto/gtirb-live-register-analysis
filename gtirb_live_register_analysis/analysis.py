@@ -104,7 +104,7 @@ class LiveRegisterAnalyzer:
         if self.semantics.needs_explicit_read_fallback(instruction):
             regs_read = regs_read.union(self._instruction_regs_read_fallback(instruction))
         if self.abi.is_call_instruction(instruction):
-            regs_read = regs_read.union(self.abi.calling_convention_registers())
+            regs_read = regs_read.union(self.abi.conservative_call_registers())
 
         return regs_read
 

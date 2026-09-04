@@ -13,6 +13,19 @@ class AnalysisAwareABI(ABI):
             for name in self.calling_convention().registers
         }
 
+    def conservative_call_registers(self) -> Set[Register]:
+        """Registers that an unmodeled callee may consume as inputs.
+
+        ABI argument registers alone are insufficient for local assembly
+        helpers, which may use a private register calling convention.  Keep
+        every register that patch allocation could otherwise use as scratch
+        live at calls, while retaining non-GPR ABI arguments such as XMM
+        registers.
+        """
+        return set(self._scratch_registers()).union(
+            self.calling_convention_registers()
+        )
+
     def callee_saved_registers(self) -> Set[Register]:
         return set(self.all_registers()).difference(self.caller_saved_registers())
 
