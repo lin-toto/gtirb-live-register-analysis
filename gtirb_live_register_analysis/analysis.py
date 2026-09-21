@@ -8,7 +8,7 @@ from gtirb_rewriting.assembly import Register
 from .abi import AnalysisAwareABI
 from .arch import semantics_for_abi
 
-from capstone import CS_AC_READ, CS_OP_MEM, CS_OP_REG, CsError, CsInsn
+from capstone import CS_AC_READ, CS_GRP_INT, CS_OP_MEM, CS_OP_REG, CsError, CsInsn
 from collections import deque
 from typing import Optional, List, Dict, Set
 
@@ -92,10 +92,13 @@ class LiveRegisterAnalyzer:
 
                         source_instructions = list(self.decoder.get_instructions(e.source))
                         self.queue.append((e.source, source_instructions, len(source_instructions) - 1))
-            else:
+            elif instruction_idx > 0:
                 self.queue.append((block, instructions, instruction_idx - 1))
 
     def _instruction_regs_read(self, instruction: CsInsn) -> Set[Register]:
+        # System calls and software interrupts do not use the function ABI.
+        if instruction.group(CS_GRP_INT):
+            return set(self.abi.all_registers())
         try:
             regs_read = self._reg_ids_to_registers(instruction, instruction.regs_access()[0])
         except CsError:
@@ -126,7 +129,7 @@ class LiveRegisterAnalyzer:
                 continue
             
             reg = self.abi.get_register(reg_name)
-            if not self.semantics.register_write_kills(reg, reg_name):
+            if not self.semantics.register_write_kills(instruction, reg, reg_name):
                 continue
 
             regs_write.add(reg)

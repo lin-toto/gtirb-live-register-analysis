@@ -26,7 +26,7 @@ class InstructionSemantics:
     def ignore_register_name(self, reg_name: str) -> bool:
         return False
 
-    def register_write_kills(self, reg: Register, reg_name: str) -> bool:
+    def register_write_kills(self, instruction: CsInsn, reg: Register, reg_name: str) -> bool:
         return True
 
     def needs_explicit_read_fallback(self, instruction: CsInsn) -> bool:

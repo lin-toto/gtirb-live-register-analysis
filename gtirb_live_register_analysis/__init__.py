@@ -1,1 +1,15 @@
-from .manager import LiveRegisterManager
+from .manager import (
+    LIVE_REGISTER_NAMES_AUXDATA,
+    LIVE_REGISTER_NAMES_TYPE,
+    LIVE_REGISTER_SETS_AUXDATA,
+    LIVE_REGISTER_SETS_TYPE,
+    LiveRegisterManager,
+)
+
+__all__ = [
+    "LIVE_REGISTER_NAMES_AUXDATA",
+    "LIVE_REGISTER_NAMES_TYPE",
+    "LIVE_REGISTER_SETS_AUXDATA",
+    "LIVE_REGISTER_SETS_TYPE",
+    "LiveRegisterManager",
+]

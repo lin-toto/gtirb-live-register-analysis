@@ -1,9 +1,15 @@
 from capstone import CsInsn
+from capstone.x86_const import (
+    X86_INS_ADC, X86_INS_ADD, X86_INS_CMP, X86_INS_NEG, X86_INS_SBB, X86_INS_SUB,
+)
 
 from .base import InstructionSemantics
 
 
 _READ_WRITE_OPERAND0_MNEMONICS = {"adox"}
+_FULL_ARITHMETIC_FLAGS_WRITERS = {
+    X86_INS_ADC, X86_INS_ADD, X86_INS_CMP, X86_INS_NEG, X86_INS_SBB, X86_INS_SUB,
+}
 
 
 class X64InstructionSemantics(InstructionSemantics):
@@ -23,5 +29,12 @@ class X64InstructionSemantics(InstructionSemantics):
             return set()
         return None
 
-    def register_write_kills(self, reg, reg_name: str) -> bool:
+    def register_write_kills(self, instruction: CsInsn, reg, reg_name: str) -> bool:
+        if reg == self.abi.flag_register():
+            # The tracked value is CF/PF/AF/ZF/SF/OF, not DF or full RFLAGS.
+            # These instructions define all six unconditionally; ADC/SBB's
+            # incoming carry remains a read in the liveness transfer. Keep
+            # partial/conditional writes and undefined outputs conservative.
+            # Instruction IDs also cover prefixed forms such as LOCK ADD.
+            return instruction.id in _FULL_ARITHMETIC_FLAGS_WRITERS
         return self.analyzer._register_access_size(reg, reg_name) > 16

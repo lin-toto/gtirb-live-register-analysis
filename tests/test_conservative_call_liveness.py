@@ -28,6 +28,10 @@ class _FakeInstruction:
         self.mnemonic = mnemonic
 
     @staticmethod
+    def group(_):
+        return False
+
+    @staticmethod
     def regs_access():
         return (), ()
 

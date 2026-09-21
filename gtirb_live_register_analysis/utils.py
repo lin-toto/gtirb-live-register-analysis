@@ -16,7 +16,9 @@ class CachedGtirbInstructionDecoder(GtirbInstructionDecoder):
 
         if module_is_unsupported_riscv(block.module):
             raise NotImplementedError("RV32 and generic RISC-V decoding are not supported")
-        if module_is_riscv64(block.module):
+        if block.size == 0:
+            result = []
+        elif module_is_riscv64(block.module):
             result = list(self._get_riscv64_decoder(block).disasm(block.contents, block.address or block.offset))
         else:
             result = list(super().get_instructions(block))
