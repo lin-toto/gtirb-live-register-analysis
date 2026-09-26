@@ -10,7 +10,7 @@ class ImplicitRegistersTests(unittest.TestCase):
     def test_system_call_boundaries_preserve_all_tracked_registers(self):
         cases = (
             (_X86_64_ELF, capstone.CS_ARCH_X86, capstone.CS_MODE_64, "0f05"),
-            (_ARM64_ELF, capstone.CS_ARCH_ARM64, capstone.CS_MODE_ARM, "010000d4"),
+            (_ARM64_ELF, getattr(capstone, "CS_ARCH_AARCH64", getattr(capstone, "CS_ARCH_ARM64", None)), capstone.CS_MODE_ARM, "010000d4"),
             (_RISCV64_ELF, capstone.CS_ARCH_RISCV, capstone.CS_MODE_RISCV64, "73000000"),
         )
         for abi_class, architecture, mode, encoded in cases:

@@ -6,6 +6,28 @@ from typing import Dict, Iterator
 
 from .module_info import module_is_riscv64, module_is_unsupported_riscv
 
+# RV64GC. Capstone 6 decodes the A, F and D extensions only when their mode flags are set (Capstone 5
+# always decoded them and has no such flags). Teapot's decoders (teapot.arch.decoders) use the same
+# configuration, so both see the same instructions.
+RISCV64_MODE = (capstone.CS_MODE_RISCV64 | capstone.CS_MODE_RISCVC |
+                getattr(capstone, "CS_MODE_RISCV_A", 0) | getattr(capstone, "CS_MODE_RISCV_FD", 0))
+
+
+def configure_riscv64(decoder: capstone.Cs) -> capstone.Cs:
+    """Real, uncompressed instructions with complete details under Capstone 6.
+
+    Capstone 6's alias details drop the link register of `jal`, `jalr` and `ret` from the operands,
+    the register accesses and the call group; the uncompressed real form lists every operand. A
+    compressed instruction keeps its 2-byte size. Capstone 5 has neither option and is left as is.
+    """
+    syntax = getattr(capstone, "CS_OPT_SYNTAX_UNCOMPRESSED_REAL", None)
+    if syntax is None:
+        decoder.detail = True
+        return decoder
+    decoder.syntax = syntax
+    decoder.option(capstone.CS_OPT_DETAIL, capstone.CS_OPT_ON | capstone.CS_OPT_DETAIL_UNCOMPRESSED_REAL)
+    return decoder
+
 
 class CachedGtirbInstructionDecoder(GtirbInstructionDecoder):
     cache: dict = {}
@@ -32,8 +54,7 @@ class CachedGtirbInstructionDecoder(GtirbInstructionDecoder):
 
         endian = (capstone.CS_MODE_BIG_ENDIAN if block.module and
                   block.module.byte_order == gtirb.Module.ByteOrder.Big else capstone.CS_MODE_LITTLE_ENDIAN)
-        mode = capstone.CS_MODE_RISCV64 | capstone.CS_MODE_RISCVC | endian
+        mode = RISCV64_MODE | endian
         if mode not in self._riscv64_decoders:
-            self._riscv64_decoders[mode] = capstone.Cs(capstone.CS_ARCH_RISCV, mode)
-            self._riscv64_decoders[mode].detail = True
+            self._riscv64_decoders[mode] = configure_riscv64(capstone.Cs(capstone.CS_ARCH_RISCV, mode))
         return self._riscv64_decoders[mode]
