@@ -35,10 +35,9 @@ class X64InstructionSemantics(InstructionSemantics):
         return super().instruction_regs_read_fallback(instruction)
 
     def needs_explicit_read_fallback(self, instruction: CsInsn) -> bool:
-        # Capstone 5 marks ADOX's destination as write-only even though its
-        # previous value is an input to the addition.  Preserve that value in
-        # liveness independently of the decoder version in use.
-        # TEST's register operand can also be omitted in memory-first forms.
+        # Capstone (5 and 6.0) marks ADOX's destination as write-only even
+        # though its previous value is an input to the addition, and can omit
+        # TEST's register operand in memory-first forms.
         return (instruction.mnemonic in _EXPLICIT_READ_MNEMONICS or
                 _base_mnemonic(instruction) in _COMPARE_EXCHANGE_PAIRS)
 
