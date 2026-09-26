@@ -14,9 +14,9 @@ if __name__ == "__main__":
         packages=setuptools.find_packages(),
         package_data={"gtirb_live_register_analysis": ["py.typed"]},
         install_requires=[
-            "capstone",
+            "capstone>=6.0.0a11",
             "gtirb",
-            "gtirb-capstone",
+            "gtirb-capstone>=1.1.2",
             "gtirb-functions",
             "gtirb-rewriting>=0.3.0",
         ],

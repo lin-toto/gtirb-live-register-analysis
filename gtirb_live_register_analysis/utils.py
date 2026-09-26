@@ -6,25 +6,20 @@ from typing import Dict, Iterator
 
 from .module_info import module_is_riscv64, module_is_unsupported_riscv
 
-# RV64GC. Capstone 6 decodes the A, F and D extensions only when their mode flags are set (Capstone 5
-# always decoded them and has no such flags). Teapot's decoders (teapot.arch.decoders) use the same
-# configuration, so both see the same instructions.
+# RV64GC. Capstone 6 decodes the A, F and D extensions only when their mode flags are set. Teapot's
+# decoders (teapot.arch.decoders) use the same configuration, so both see the same instructions.
 RISCV64_MODE = (capstone.CS_MODE_RISCV64 | capstone.CS_MODE_RISCVC |
-                getattr(capstone, "CS_MODE_RISCV_A", 0) | getattr(capstone, "CS_MODE_RISCV_FD", 0))
+                capstone.CS_MODE_RISCV_A | capstone.CS_MODE_RISCV_FD)
 
 
 def configure_riscv64(decoder: capstone.Cs) -> capstone.Cs:
-    """Real, uncompressed instructions with complete details under Capstone 6.
+    """Real, uncompressed instructions with complete details.
 
     Capstone 6's alias details drop the link register of `jal`, `jalr` and `ret` from the operands,
     the register accesses and the call group; the uncompressed real form lists every operand. A
-    compressed instruction keeps its 2-byte size. Capstone 5 has neither option and is left as is.
+    compressed instruction keeps its 2-byte size.
     """
-    syntax = getattr(capstone, "CS_OPT_SYNTAX_UNCOMPRESSED_REAL", None)
-    if syntax is None:
-        decoder.detail = True
-        return decoder
-    decoder.syntax = syntax
+    decoder.syntax = capstone.CS_OPT_SYNTAX_UNCOMPRESSED_REAL
     decoder.option(capstone.CS_OPT_DETAIL, capstone.CS_OPT_ON | capstone.CS_OPT_DETAIL_UNCOMPRESSED_REAL)
     return decoder
 
