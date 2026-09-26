@@ -1,4 +1,4 @@
-from capstone import CsInsn, riscv_const
+from capstone import CS_OP_REG, CsInsn, riscv_const
 
 from .base import InstructionSemantics
 
@@ -31,6 +31,26 @@ _NO_WRITE_MNEMONICS = {
     "ret", "jr", "c.jr", "j", "c.j", "tail", "ecall", "ebreak", "fence", "fence.i",
 }
 _CALL_LINK_MNEMONICS = {"call", "jal", "c.jal", "c.jalr"}
+
+
+def riscv64_link_register(instruction: CsInsn) -> str:
+    """Name of the register a jal/jalr writes its return address to.
+
+    Capstone 6's real form, and Capstone 5's three-operand jalr, name the destination explicitly
+    (``zero`` for a plain jump or return); Capstone 5's one-operand aliases imply ``ra``.
+    """
+    operands = instruction.operands
+    if len(operands) >= 2 and operands[0].type == CS_OP_REG:
+        return instruction.reg_name(operands[0].reg)
+    return "ra"
+
+
+def riscv64_is_call(instruction: CsInsn) -> bool:
+    """A jal/jalr that links (Capstone 5 aliases, compressed forms and Capstone 6 real forms)."""
+    mnemonic = instruction.mnemonic
+    if mnemonic in ("call", "c.jal", "c.jalr"):
+        return True
+    return mnemonic in ("jal", "jalr") and riscv64_link_register(instruction) != "zero"
 
 
 class RISCV64InstructionSemantics(InstructionSemantics):

@@ -3,6 +3,7 @@ from typing import List, Optional, Set
 from gtirb_rewriting.abi import CallingConventionDesc, _AsmSnippet
 from gtirb_rewriting.assembly import Register
 
+from ..arch.riscv64 import riscv64_is_call
 from .base import AnalysisAwareABI
 
 
@@ -120,4 +121,5 @@ class _RISCV64_ELF(AnalysisAwareABI):
         return None
 
     def is_call_instruction(self, instruction) -> bool:
-        return instruction.mnemonic in ("call", "tail", "jal", "jalr", "c.jal", "c.jalr")
+        # A tail pseudo-call still passes arguments; a plain jump or return does not.
+        return instruction.mnemonic == "tail" or riscv64_is_call(instruction)
