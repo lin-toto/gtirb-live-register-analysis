@@ -60,16 +60,14 @@ class LiveRegisterAnalyzer:
         instruction = instructions[instruction_idx]
 
         if self.analysis_scope == "function":
-            if block in self.function.get_exit_blocks() and instruction_idx == len(instructions) - 1:
-                # is return instruction
-                out_regs = self.abi.return_registers().union(self.abi.callee_saved_registers())
-            else:
-                if instruction_idx == len(instructions) - 1:
-                    successors = [(e.target, list(self.decoder.get_instructions(e.target)), 0) \
-                        for e in block.outgoing_edges if isinstance(e.target, gtirb.CodeBlock)]
-                else:
-                    successors = [(block, instructions, instruction_idx + 1)]
+            if instruction_idx == len(instructions) - 1:
+                successors = [(e.target, list(self.decoder.get_instructions(e.target)), 0) \
+                    for e in block.outgoing_edges if isinstance(e.target, gtirb.CodeBlock)]
                 out_regs = set().union(*[self._get_in_regs(*x) for x in successors])
+                if block in self.function.get_exit_blocks():
+                    out_regs |= self._exit_live_registers(block)
+            else:
+                out_regs = self._get_in_regs(block, instructions, instruction_idx + 1)
         elif self.analysis_scope == "block":
             if instruction_idx == len(instructions) - 1:
                 out_regs = set(self.abi.all_registers())
@@ -94,6 +92,21 @@ class LiveRegisterAnalyzer:
                         self.queue.append((e.source, source_instructions, len(source_instructions) - 1))
             elif instruction_idx > 0:
                 self.queue.append((block, instructions, instruction_idx - 1))
+
+    def _exit_live_registers(self, block: gtirb.CodeBlock) -> Set[Register]:
+        """Registers live where control leaves the function at *block*.
+
+        A return hands back the return values and the callee-saved registers. A jump out of the
+        function, such as a tail call (possibly conditional, or through a register), hands every
+        register to a callee this analysis does not model: its arguments, and the return address
+        it will return through. An exit without such an edge, as in a caller-supplied exit set,
+        counts as a return."""
+        blocks = self.function.get_all_blocks()
+        not_leaving = (gtirb.EdgeType.Call, gtirb.EdgeType.Syscall, gtirb.EdgeType.Return, gtirb.EdgeType.Sysret)
+        for edge in block.outgoing_edges:
+            if edge.label and edge.label.type not in not_leaving and edge.target not in blocks:
+                return set(self.abi.all_registers())
+        return self.abi.return_registers() | self.abi.callee_saved_registers()
 
     def _instruction_regs_read(self, instruction: CsInsn) -> Set[Register]:
         # System calls and software interrupts do not use the function ABI.
