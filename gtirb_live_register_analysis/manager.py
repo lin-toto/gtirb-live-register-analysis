@@ -16,8 +16,18 @@ from .abi import AnalysisAwareABI, abi_for_module
 
 LIVE_REGISTER_NAMES_AUXDATA = "liveRegisterNames"
 LIVE_REGISTER_SETS_AUXDATA = "liveRegisterSets"
+LIVE_REGISTER_SETS_HIGH_AUXDATA = "liveRegisterSetsHigh"
 LIVE_REGISTER_NAMES_TYPE = "sequence<string>"
 LIVE_REGISTER_SETS_TYPE = "mapping<Offset,uint64_t>"
+
+# Order is independent of the producer's GPR prefix and corresponds to the
+# checkpoint-state bits in vectors.py. Names designate non-overlapping pieces.
+VECTOR_REGISTER_NAMES = (
+    tuple(f'xmm{i}' for i in range(32)) +
+    tuple(f'ymm{i}h' for i in range(32)) +
+    tuple(f'zmm{i}h' for i in range(32)) +
+    tuple(f'k{i}' for i in range(8))
+)
 
 
 class NotEnoughFreeRegistersException(Exception):
@@ -63,6 +73,9 @@ class LiveRegisterManager:
                     isinstance(sets_aux.data, Mapping) and sets_aux.data):
                 count = len(sets_aux.data)
                 sets_aux.data = {}
+                high = self.module.aux_data.get(LIVE_REGISTER_SETS_HIGH_AUXDATA)
+                if high is not None:
+                    high.data = {}
                 warnings.warn(
                     f"module {self.module.name!r}: invalidating {count} live-register masks "
                     "after an unspecified edit; all instructions remain all-live. "
@@ -74,6 +87,22 @@ class LiveRegisterManager:
         if isinstance(self.analyzer.decoder, CachedGtirbInstructionDecoder):
             self.analyzer.decoder.cache.clear()
         self._metadata_registers, self._metadata_sets = self._load_metadata()
+        self._vector_bit_indices = None
+        self._metadata_high_sets = {}
+        if self._metadata_sets is not None and self.module.isa == gtirb.Module.ISA.X64:
+            names = self.module.aux_data[LIVE_REGISTER_NAMES_AUXDATA].data
+            if set(VECTOR_REGISTER_NAMES).issubset(names):
+                self._vector_bit_indices = tuple(names.index(n) for n in VECTOR_REGISTER_NAMES)
+                high = self.module.aux_data.get(LIVE_REGISTER_SETS_HIGH_AUXDATA)
+                if high is not None:
+                    if high.type_name == LIVE_REGISTER_SETS_TYPE and isinstance(high.data, Mapping):
+                        self._metadata_high_sets = {
+                            offset: mask for offset, mask in high.data.items()
+                            if offset in self._metadata_sets and isinstance(mask, int)
+                            and 0 <= mask < (1 << (len(names) - 64))}
+                        high.data = self._metadata_high_sets
+                    else:
+                        self.module.aux_data.pop(LIVE_REGISTER_SETS_HIGH_AUXDATA)
         self.analysis_source = "ddisasm" if self._metadata_sets is not None else "python"
 
     def _load_metadata(self) -> Tuple[Optional[List[Register]], Optional[Mapping[gtirb.Offset, int]]]:
@@ -88,12 +117,19 @@ class LiveRegisterManager:
                 raise ValueError(f"unexpected {LIVE_REGISTER_SETS_AUXDATA} type")
 
             names = list(names_aux.data)
-            if not names or len(names) > 64 or any(
+            if not names or len(names) > 128 or any(
                     not isinstance(name, str) or not name for name in names):
-                raise ValueError("register-name table must contain 1-64 non-empty names")
+                raise ValueError("register-name table must contain 1-128 non-empty names")
 
-            registers = [self.abi.get_register(name) for name in names]
-            if len(set(registers)) != len(registers):
+            wide_x64 = self.module.isa == gtirb.Module.ISA.X64 and len(names) > 64
+            # The allocator API exposes physical-register aliases, while the
+            # checkpoint API below retains exact non-overlapping vector pieces.
+            registers = [self.abi.get_register(name[:-1] if wide_x64 and
+                         name in VECTOR_REGISTER_NAMES and name.endswith('h') else name)
+                         for name in names]
+            scalar_registers = [r for n, r in zip(names, registers)
+                                if not (wide_x64 and n in VECTOR_REGISTER_NAMES)]
+            if len(set(names)) != len(names) or len(set(scalar_registers)) != len(scalar_registers):
                 raise ValueError("register-name table contains aliases of the same register")
             if not set(self.abi._scratch_registers()).issubset(registers):
                 raise ValueError("register-name table omits allocatable scratch registers")
@@ -101,7 +137,7 @@ class LiveRegisterManager:
             if flag_register is not None and flag_register not in registers:
                 raise ValueError("register-name table omits the condition flags")
 
-            valid_bits = (1 << len(registers)) - 1
+            valid_bits = (1 << min(64, len(registers))) - 1
             register_sets = sets_aux.data
             if not isinstance(register_sets, Mapping):
                 raise ValueError("live-register data is not a mapping")
@@ -168,6 +204,11 @@ class LiveRegisterManager:
                     block_registers.append(set(all_registers))
                     continue
 
+                if len(self._metadata_registers) > 64:
+                    # A missing high word retains the physical vector aliases;
+                    # it must not compromise the still-valid low GPR masks.
+                    mask |= self._metadata_high_sets.get(offset, (1 << 64)-1) << 64
+
                 block_registers.append({
                     register
                     for index, register in enumerate(self._metadata_registers)
@@ -188,6 +229,25 @@ class LiveRegisterManager:
             return None
         from .vectors import analyze_vectors
         return analyze_vectors(function, self.analyzer.decoder, self._metadata_sets)
+
+    def producer_vector_mask(self, block: gtirb.CodeBlock, displacement: int):
+        """DDisasm's vector pieces at an original instruction, or unknown.
+
+        Keep this separate from the GPR allocator projection: missing/invalid
+        high words must force a full checkpoint, not disable valid GPR masks.
+        The Python vector analysis is only an optional independent cross-check.
+        """
+        if self.module.isa != gtirb.Module.ISA.X64 or self._metadata_sets is None:
+            return None
+        if self._vector_bit_indices is None:
+            return None
+        offset = gtirb.Offset(block, displacement)
+        lo, hi = self._metadata_sets.get(offset), self._metadata_high_sets.get(offset)
+        if lo is None or hi is None:
+            return None
+        mask = lo | (hi << 64)
+        return sum(1 << bit for bit, index in enumerate(self._vector_bit_indices)
+                   if mask & (1 << index))
 
     def live_registers(self, function: Function, block: gtirb.CodeBlock, instruction_idx: int) -> Set[Register]:
         assert function.uuid in self.result_cache, "Live registers of function have not been analyzed"

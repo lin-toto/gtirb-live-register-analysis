@@ -1,7 +1,7 @@
 """Intraprocedural SysV x64 vector liveness for checkpoint state selection.
 
-The producer currently exports GPR/flag masks only. This analysis does not
-modify those masks or the register allocator. Bits describe the low 128,
+This optional independent cross-check does not modify producer masks or the
+register allocator. Bits describe the low 128,
 next 128 and high 256 bits of each vector register, followed by mask registers.
 None means that the entire function requires a full state snapshot.
 """
@@ -91,13 +91,18 @@ def extended_state_clobbers(module, decoder):
     blocks = {b for b in module.code_blocks if b.section.name == '.text'}
     unsafe = set()
     predecessors = {b: set() for b in blocks}
+    def unmodeled(insn):
+        op = insn.mnemonic.split()[-1]
+        reads, writes = insn.regs_access()
+        # Do not confuse a conservative Python lane-analysis fallback (EVEX,
+        # indirect calls, etc.) with an instruction that touches other state.
+        return (op.startswith(('f', 'xsave', 'xrstor')) or op == 'emms' or
+                any(insn.reg_name(r).startswith(('st', 'mm')) for r in (*reads, *writes)))
     for block in blocks:
         try:
             instructions = list(decoder.get_instructions(block))
             if (sum(i.size for i in instructions) != block.size or
-                    any(_effects(i) is None for i in instructions) or
-                    any(i.group(CS_GRP_CALL) and
-                        not any(o.type == CS_OP_IMM for o in i.operands) for i in instructions)):
+                    any(unmodeled(i) for i in instructions)):
                 unsafe.add(block)
         except (CsError, ValueError):
             unsafe.add(block)

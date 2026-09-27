@@ -16,10 +16,11 @@ class _X86_64_ELF(_X86_64_ELF_BASE, AnalysisAwareABI):
             Register({"64": "rflags"}, "64"),
         ]
 
-        for i in range(0, 31):
+        for i in range(32):
             registers.append(Register({
                 "128": f"xmm{i}", "256": f"ymm{i}", "512": f"zmm{i}"
             }, default_size="128"))
+        registers.extend(Register({"64": f"k{i}"}, "64") for i in range(8))
 
         return registers
 

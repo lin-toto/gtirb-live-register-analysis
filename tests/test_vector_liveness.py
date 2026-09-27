@@ -5,9 +5,38 @@ from gtirb_live_register_analysis.abis import _X86_64_ELF
 from gtirb_live_register_analysis.vectors import (
     analyze_vectors, checkpoint_case, vector_mask, extended_state_clobbers)
 from test_intraprocedural_flags import fixture
+from gtirb_live_register_analysis.manager import VECTOR_REGISTER_NAMES
 
 
 class VectorLivenessTests(unittest.TestCase):
+    def test_producer_words_are_validated_and_projected_without_python(self):
+        ir, module, (block,), fn, manager = self.analyze(['90 c3'])
+        scalar = [r.name for r in manager.abi.all_registers() if r.name not in VECTOR_REGISTER_NAMES]
+        names = scalar + list(VECTOR_REGISTER_NAMES)
+        module.aux_data['liveRegisterNames'].data = names
+        low = module.aux_data['liveRegisterSets'].data
+        high = module.aux_data['liveRegisterSetsHigh'] = gtirb.AuxData({}, 'mapping<Offset,uint64_t>')
+        off = gtirb.Offset(block, 0)
+        for selected in ((), ('xmm0',), ('xmm31', 'ymm31h', 'zmm31h', 'k7')):
+            mask = sum(1 << names.index(name) for name in selected)
+            low[off], high.data[off] = mask & ((1 << 64)-1), mask >> 64
+            manager.refresh(preserve_liveness=True)
+            high = module.aux_data['liveRegisterSetsHigh']
+            self.assertEqual(manager.analysis_source, 'ddisasm')
+            self.assertEqual(manager.producer_vector_mask(block, 0),
+                             sum(1 << VECTOR_REGISTER_NAMES.index(n) for n in selected))
+            manager.analyze(fn)
+            physical = manager.live_registers(fn, block, 0)
+            for name in selected:
+                self.assertIn(manager.abi.get_register(name[:-1] if name.endswith('h') else name), physical)
+        high.data[off] = 1 << 64
+        manager.refresh(preserve_liveness=True)
+        self.assertIsNone(manager.producer_vector_mask(block, 0))
+        self.assertEqual(manager.analysis_source, 'ddisasm')
+        module.aux_data.pop('liveRegisterSetsHigh')
+        manager.refresh(preserve_liveness=True)
+        self.assertIsNone(manager.producer_vector_mask(block, 0))
+
     def analyze(self, parts):
         ir, module, blocks, fn, manager = fixture(gtirb.Module.ISA.X64, _X86_64_ELF(), parts)
         return ir, module, blocks, fn, manager
@@ -70,6 +99,10 @@ class VectorLivenessTests(unittest.TestCase):
         ir.cfg.add(gtirb.Edge(caller, gtirb.ProxyBlock(module=module),
                              gtirb.Edge.Label(gtirb.EdgeType.Call)))
         self.assertNotIn(caller.uuid, extended_state_clobbers(module, mgr.analyzer.decoder))
+        # An unknown call and a masked EVEX operation are not evidence of x87.
+        for code in ('ffd0 c3', '62f17c4857c0 c3'):
+            ir, module, (b,), fn, mgr = self.analyze([code])
+            self.assertNotIn(b.uuid, extended_state_clobbers(module, mgr.analyzer.decoder))
 
 
 if __name__ == '__main__':
