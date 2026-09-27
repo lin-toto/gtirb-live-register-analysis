@@ -123,7 +123,9 @@ def analyze_vectors(function, decoder, masks):
 
     ``masks`` is the validated producer table. Its contents do not model vector
     state, but absent instruction entries must not become a dead-state proof.
-    Calls kill vector state, reading only ABI arguments; returns read XMM0--1.
+    External/indirect calls kill vector state, reading only ABI arguments;
+    returns read XMM0--1. This optional local-only cross-check has no callee
+    summaries: known internal calls/tails are unknown, never an ABI kill proof.
     Wider-register functions conservatively use equally wide ABI arguments and
     results. Resolved in-function jump tables participate in the fixed point.
     """
@@ -160,6 +162,13 @@ def analyze_vectors(function, decoder, masks):
         edges = list(block.outgoing_edges)
         for edge in edges:
             if edge.label is None:
+                return None
+            if (edge.label.type in (gtirb.EdgeType.Call, gtirb.EdgeType.Branch) and
+                    isinstance(edge.target, gtirb.CodeBlock) and edge.target not in blocks and
+                    edge.target.section.name not in ('.plt', '.plt.got', '.plt.sec', '.iplt')):
+                return None
+            if (edge.label.type == gtirb.EdgeType.Call and
+                    isinstance(edge.target, gtirb.CodeBlock) and edge.target in blocks):
                 return None
             if edge.label.type in (gtirb.EdgeType.Call, gtirb.EdgeType.Return):
                 continue

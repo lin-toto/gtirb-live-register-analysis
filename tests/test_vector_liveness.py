@@ -73,6 +73,13 @@ class VectorLivenessTests(unittest.TestCase):
         self.assertEqual(values[call.uuid][-1], 255)
         self.assertTrue(values[continuation.uuid][0] & vector_mask('xmm8'))
 
+    def test_local_call_is_not_an_abi_kill_in_the_optional_cross_check(self):
+        ir, module, (call, continuation, callee), fn, mgr = self.analyze([
+            '90 e800000000', '440f2900 660fefc0 660fefc9 c3', '90 c3'])
+        ir.cfg.add(gtirb.Edge(call, callee, gtirb.Edge.Label(gtirb.EdgeType.Call)))
+        ir.cfg.add(gtirb.Edge(call, continuation, gtirb.Edge.Label(gtirb.EdgeType.Fallthrough)))
+        self.assertIsNone(analyze_vectors(fn, mgr.analyzer.decoder, mgr._metadata_sets))
+
     def test_cfg_fixed_point_and_missing_data(self):
         ir, module, (start, loop, end), fn, mgr = self.analyze([
             '90 eb00', '440f2900 7500', '660fefc0 660fefc9 c3'])
