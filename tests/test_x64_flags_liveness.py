@@ -36,7 +36,8 @@ class X64FlagsLivenessTests(unittest.TestCase):
                 function = Function(uuid.uuid4(), {block}, {block}, exitBlocks={block})
                 analyzer = LiveRegisterAnalyzer(self.abi, self.decoder)
                 live = analyzer.analyze(function)[block.uuid]
-                for index in (0, 1, 2):
+                self.assertNotIn(self.abi.flag_register(), live[0])  # ABI entry
+                for index in (1, 2):
                     self.assertIn(self.abi.flag_register(), live[index])
 
     def test_complete_arithmetic_writes_end_the_old_flags_live_range(self):
@@ -65,7 +66,8 @@ class X64FlagsLivenessTests(unittest.TestCase):
                 instruction = list(self.decoder.get_instructions(block))[1]
                 self.assertIn(self.abi.flag_register(), analyzer._instruction_regs_write(instruction))
                 live = analyzer.analyze(function)[block.uuid]
-                for index in (0, 1, 2):
+                self.assertNotIn(self.abi.flag_register(), live[0])  # ABI entry
+                for index in (1, 2):
                     self.assertIn(self.abi.flag_register(), live[index])
 
     def test_other_flag_writes_remain_conservative(self):

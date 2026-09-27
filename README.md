@@ -24,10 +24,18 @@ Liveness analysis and rewriting share one RISC-V mode/detail configuration.
 | X64 (x86-64) | ELF         |
 
 The x64 `rflags` value tracks the six arithmetic flags (CF/PF/AF/ZF/SF/OF), not
-DF or other control flags. ADD, SUB, CMP, NEG, ADC and SBB completely define
-that value; ADC/SBB still require their incoming carry. Partial writes, shifts
-and instructions with undefined outputs remain conservative. Consumers must
+DF or other control flags. Internally each flag has independent reads and kills
+from Capstone, including undefined outputs. Variable-count shifts/rotates kill
+nothing, since a zero count preserves flags. INC/DEC therefore preserve carry
+chains without keeping dead overflow live. Consumers must
 preserve DF and other non-arithmetic flags independently if they modify them.
+
+By default Python intraprocedural analysis supplies the x64 arithmetic flags
+and AArch64 NZCV; DDisasm supplies every other bit. Flags are not ABI arguments
+or results: entry, calls, call continuations, returns and direct tail transfers
+are boundaries. Unresolved indirect jumps remain conservative. AArch64 NZCV
+is one unit. `conservative_flags=True` restores the previous producer/fallback
+flag policy. This choice is independent of the GPR fallback's analysis scope.
 
 ## Ddisasm Metadata
 
@@ -43,15 +51,15 @@ Both tables are validated before use. Offsets are relative to CodeBlocks.
 Missing tables or incompatible schemas/register names fall back to Python
 analysis with a warning naming the module, analysis scope and reason. Invalid
 individual entries are removed with a warning; valid entries remain usable.
-A missing instruction entry is treated as all registers live, without running
-Python analysis. Structural validation does not prove that an instruction's
+A missing instruction entry keeps all non-flag registers live; Python still
+supplies flags. Structural validation does not prove that an instruction's
 register effects still match the frontend analysis.
 
 After rewriting, call `reg_manager.refresh()` before analyzing or allocating
 again. By default, an unspecified edit invalidates all old module masks with a
 warning. Changed uses can propagate into predecessors and callers; dropping
 only the changed instruction's entry is not sufficient. The now-missing entries
-are all-live, without running Python analysis.
+are all-live except for the independently recomputed flags.
 
 Use `refresh(preserve_liveness=True)` only when the transformation preserves the
 original register dependencies and control-flow meaning. It reloads migrated

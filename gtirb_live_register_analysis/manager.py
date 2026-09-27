@@ -34,14 +34,15 @@ class LiveRegisterManager:
 
     def __init__(self, module: gtirb.Module, abi: Optional[AnalysisAwareABI] = None,
                  decoder: Optional[GtirbInstructionDecoder] = None, *,
-                 analysis_scope: str = "function"):
+                 analysis_scope: str = "function", conservative_flags: bool = False):
         self.module = module
         self.abi = abi if abi is not None else abi_for_module(module)
         self.result_cache = dict()
 
         if decoder is None:
             decoder = CachedGtirbInstructionDecoder(module.isa)
-        self.analyzer = LiveRegisterAnalyzer(self.abi, decoder, analysis_scope=analysis_scope)
+        self.analyzer = LiveRegisterAnalyzer(self.abi, decoder, analysis_scope=analysis_scope,
+                                             conservative_flags=conservative_flags)
         self._analysis_scope = analysis_scope
         self._fallback_reason = None
         self.refresh()
@@ -174,6 +175,7 @@ class LiveRegisterManager:
                 })
             function_registers[block.uuid] = block_registers
 
+        self.analyzer.merge_flags(function, function_registers)
         self.result_cache[function.uuid] = function_registers
 
     def live_registers(self, function: Function, block: gtirb.CodeBlock, instruction_idx: int) -> Set[Register]:

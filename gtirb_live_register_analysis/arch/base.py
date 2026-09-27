@@ -3,6 +3,7 @@ from gtirb_rewriting.assembly import Register
 
 
 class InstructionSemantics:
+    flag_mask = 0
     def __init__(self, analyzer):
         self.analyzer = analyzer
 
@@ -28,6 +29,10 @@ class InstructionSemantics:
 
     def register_write_kills(self, instruction: CsInsn, reg: Register, reg_name: str) -> bool:
         return True
+
+    def flag_effects(self, instruction: CsInsn):
+        """Optional independent arithmetic-flag (read, kill, all) masks."""
+        return None
 
     def needs_explicit_read_fallback(self, instruction: CsInsn) -> bool:
         return False

@@ -7,6 +7,7 @@ from gtirb_rewriting.assembly import Register
 
 from .abi import AnalysisAwareABI
 from .arch import semantics_for_abi
+from .flags import analyze_flags
 
 from capstone import CS_AC_READ, CS_GRP_INT, CS_OP_MEM, CS_OP_REG, CsError, CsInsn
 from collections import deque
@@ -23,13 +24,14 @@ class LiveRegisterAnalyzer:
     in_regs: Dict[uuid.UUID, List[Set[Register]]]
 
     def __init__(self, abi: AnalysisAwareABI, decoder: GtirbInstructionDecoder, *,
-                 analysis_scope: str = "function"):
+                 analysis_scope: str = "function", conservative_flags: bool = False):
         self.abi = abi
         self.decoder = decoder
 
         assert analysis_scope in ("function", "block")
         self.analysis_scope = analysis_scope
         self.semantics = semantics_for_abi(self)
+        self.conservative_flags = conservative_flags
 
     def analyze(self, function: Function) -> Dict[uuid.UUID, List[Set[Register]]]:
         self.function = function
@@ -54,7 +56,24 @@ class LiveRegisterAnalyzer:
                 instruction_idx = len(instructions) - 1
             self._analyze_step(block, instructions, instruction_idx)
 
+        self.merge_flags(function, self.in_regs)
         return self.in_regs
+
+    def merge_flags(self, function, registers):
+        if self.conservative_flags:
+            return
+        flag_masks = analyze_flags(function, self)
+        if flag_masks is None:
+            return
+        flag_register = self.abi.flag_register()
+        for block_uuid, instructions in registers.items():
+            masks = flag_masks.get(block_uuid)
+            if masks is None or len(masks) != len(instructions):
+                continue
+            for mask, regs in zip(masks, instructions):
+                regs.discard(flag_register)
+                if mask:
+                    regs.add(flag_register)
 
     def _analyze_step(self, block: gtirb.CodeBlock, instructions: List[CsInsn], instruction_idx: int):
         instruction = instructions[instruction_idx]

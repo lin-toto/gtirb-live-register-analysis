@@ -1,7 +1,5 @@
-from capstone import CsInsn
-from capstone.x86_const import (
-    X86_INS_ADC, X86_INS_ADD, X86_INS_CMP, X86_INS_NEG, X86_INS_SBB, X86_INS_SUB,
-)
+from capstone import CsInsn, CsError, CS_GRP_INT
+from capstone import x86_const as x86
 
 from .base import InstructionSemantics
 
@@ -20,12 +18,53 @@ def _base_mnemonic(instruction: CsInsn) -> str:
     return instruction.mnemonic.split()[-1]
 
 
-_FULL_ARITHMETIC_FLAGS_WRITERS = {
-    X86_INS_ADC, X86_INS_ADD, X86_INS_CMP, X86_INS_NEG, X86_INS_SBB, X86_INS_SUB,
-}
+_FLAGS = ("CF", "PF", "AF", "ZF", "SF", "OF")
+_FLAG_READS = tuple(sum(getattr(x86, f"X86_EFLAGS_{op}_{flag}")
+                        for op in ("TEST", "PRIOR")) for flag in _FLAGS)
+_FLAG_WRITES = tuple(sum(getattr(x86, f"X86_EFLAGS_{op}_{flag}")
+                         for op in ("MODIFY", "RESET", "SET", "UNDEFINED")) for flag in _FLAGS)
+_SHIFTS = {"shl", "sal", "shr", "sar", "shld", "shrd", "rol", "ror", "rcl", "rcr"}
 
 
 class X64InstructionSemantics(InstructionSemantics):
+    flag_mask = 63
+
+    def flag_effects(self, instruction: CsInsn):
+        # eflags and fpu_flags share a union. FCOMI has a real flags-register
+        # access; other x87 status operations must not be interpreted as EFLAGS.
+        if instruction.group(CS_GRP_INT):
+            return 63, 0, 63
+        try:
+            reads, writes = instruction.regs_access()
+        except CsError:
+            return 63, 0, 63
+        if not any(instruction.reg_name(r) in ("rflags", "eflags") for r in (*reads, *writes)):
+            return 0, 0, 63
+        bits = instruction.eflags
+        read = sum(1 << i for i, mask in enumerate(_FLAG_READS) if bits & mask)
+        kill = sum(1 << i for i, mask in enumerate(_FLAG_WRITES) if bits & mask)
+        mnemonic = _base_mnemonic(instruction)
+        # Capstone 6 Alpha11 marks LAHF's RFLAGS read but leaves eflags=0.
+        # Unknown aggregate flag readers also cannot prove any bit dead.
+        if mnemonic == 'lahf':
+            read = 31
+        elif not bits and any(instruction.reg_name(r) in ('rflags', 'eflags') for r in reads):
+            read = 63
+        if mnemonic in _SHIFTS:
+            count = instruction.operands[-1]
+            width = instruction.operands[0].size * 8
+            if count.type != x86.X86_OP_IMM:
+                kill = 0
+            else:
+                effective = count.imm & (63 if width == 64 else 31)
+                if mnemonic in ("rol", "ror"):
+                    effective %= width
+                elif mnemonic in ("rcl", "rcr") and width < 32:
+                    effective %= width + 1
+                if effective == 0:
+                    kill = 0
+        return read, kill, 63
+
     def instruction_regs_read_fallback(self, instruction: CsInsn):
         pair = _COMPARE_EXCHANGE_PAIRS.get(_base_mnemonic(instruction))
         if pair is not None:
@@ -48,8 +87,7 @@ class X64InstructionSemantics(InstructionSemantics):
             # written cannot end a live value early; ZF alone does not kill the tracked flags.
             return self._registers(pair[1])
         if instruction.mnemonic.startswith("cmov") or instruction.mnemonic == "test":
-            # TEST never writes a GPR; its flag write is not a complete kill
-            # of the tracked arithmetic flags (AF is undefined).
+            # TEST never writes a GPR. Independent flags are handled separately.
             return set()
         return None
 
@@ -58,10 +96,8 @@ class X64InstructionSemantics(InstructionSemantics):
 
     def register_write_kills(self, instruction: CsInsn, reg, reg_name: str) -> bool:
         if reg == self.abi.flag_register():
-            # The tracked value is CF/PF/AF/ZF/SF/OF, not DF or full RFLAGS.
-            # These instructions define all six unconditionally; ADC/SBB's
-            # incoming carry remains a read in the liveness transfer. Keep
-            # partial/conditional writes and undefined outputs conservative.
-            # Instruction IDs also cover prefixed forms such as LOCK ADD.
-            return instruction.id in _FULL_ARITHMETIC_FLAGS_WRITERS
+            # Legacy aggregate mode is retained by --conservative-flags. The
+            # independent flag pass below replaces this bit in normal mode.
+            return instruction.id in {x86.X86_INS_ADC, x86.X86_INS_ADD, x86.X86_INS_CMP,
+                                      x86.X86_INS_NEG, x86.X86_INS_SBB, x86.X86_INS_SUB}
         return self.analyzer._register_access_size(reg, reg_name) > 16
