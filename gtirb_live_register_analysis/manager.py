@@ -178,6 +178,17 @@ class LiveRegisterManager:
         self.analyzer.merge_flags(function, function_registers)
         self.result_cache[function.uuid] = function_registers
 
+    def analyze_vectors(self, function: Function):
+        """Separate x64 checkpoint-state analysis on the original application IR.
+
+        This does not change scratch-register masks. Call before instrumentation
+        invalidates the producer's per-instruction coverage metadata.
+        """
+        if self.module.isa != gtirb.Module.ISA.X64:
+            return None
+        from .vectors import analyze_vectors
+        return analyze_vectors(function, self.analyzer.decoder, self._metadata_sets)
+
     def live_registers(self, function: Function, block: gtirb.CodeBlock, instruction_idx: int) -> Set[Register]:
         assert function.uuid in self.result_cache, "Live registers of function have not been analyzed"
 
