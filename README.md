@@ -30,12 +30,16 @@ nothing, since a zero count preserves flags. INC/DEC therefore preserve carry
 chains without keeping dead overflow live. Consumers must
 preserve DF and other non-arithmetic flags independently if they modify them.
 
-By default Python intraprocedural analysis supplies the x64 arithmetic flags
-and AArch64 NZCV; DDisasm supplies every other bit. Flags are not ABI arguments
-or results: entry, calls, call continuations, returns and direct tail transfers
-are boundaries. Unresolved indirect jumps remain conservative. AArch64 NZCV
-is one unit. `conservative_flags=True` restores the previous producer/fallback
-flag policy. This choice is independent of the GPR fallback's analysis scope.
+By default Python analysis supplies the x64 arithmetic flags and AArch64 NZCV;
+DDisasm supplies every other bit. Function-local flag analysis uses cached
+read-before-write and may-preserve summaries for known callees: IPA register
+allocation may keep flags across a local call, so only definitions proved on
+every path end that dependency. Returns and tail exits retain flags that a path
+from the function entry leaves unwritten. External/PLT and indirect calls use
+the ABI boundary; their continuations still protect any subsequent flag reads.
+Unresolved indirect jumps remain conservative. AArch64 NZCV is one unit.
+`conservative_flags=True` restores the previous producer/fallback flag policy.
+This choice is independent of the GPR fallback's analysis scope.
 
 ## Ddisasm Metadata
 
@@ -63,7 +67,7 @@ are all-live except for the independently recomputed flags.
 
 Use `refresh(preserve_liveness=True)` only when the transformation preserves the
 original register dependencies and control-flow meaning. It reloads migrated
-tables and clears decoded instructions and per-round added-live state. The
+tables and clears decoded instructions, callee flag summaries and per-round added-live state. The
 rewriter must move offsets for surviving instructions and remove entries for
 replacements/deletions. Copies need independent offset maps. This explicit
 contract does not infer equivalence of arbitrary edits or automatically detect

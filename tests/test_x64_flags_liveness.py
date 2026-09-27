@@ -36,7 +36,7 @@ class X64FlagsLivenessTests(unittest.TestCase):
                 function = Function(uuid.uuid4(), {block}, {block}, exitBlocks={block})
                 analyzer = LiveRegisterAnalyzer(self.abi, self.decoder)
                 live = analyzer.analyze(function)[block.uuid]
-                self.assertNotIn(self.abi.flag_register(), live[0])  # ABI entry
+                self.assertIn(self.abi.flag_register(), live[0])  # local caller can pass flags
                 for index in (1, 2):
                     self.assertIn(self.abi.flag_register(), live[index])
 
@@ -66,7 +66,7 @@ class X64FlagsLivenessTests(unittest.TestCase):
                 instruction = list(self.decoder.get_instructions(block))[1]
                 self.assertIn(self.abi.flag_register(), analyzer._instruction_regs_write(instruction))
                 live = analyzer.analyze(function)[block.uuid]
-                self.assertNotIn(self.abi.flag_register(), live[0])  # ABI entry
+                self.assertIn(self.abi.flag_register(), live[0])  # local caller can pass carry
                 for index in (1, 2):
                     self.assertIn(self.abi.flag_register(), live[index])
 

@@ -84,6 +84,7 @@ class LiveRegisterManager:
                     stacklevel=2,
                 )
         self.result_cache.clear()
+        self.analyzer._flag_graph = None
         if isinstance(self.analyzer.decoder, CachedGtirbInstructionDecoder):
             self.analyzer.decoder.cache.clear()
         self._metadata_registers, self._metadata_sets = self._load_metadata()
