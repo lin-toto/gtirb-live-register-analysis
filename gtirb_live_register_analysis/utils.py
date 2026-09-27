@@ -1,28 +1,35 @@
 import capstone
 import gtirb
+import importlib
 from gtirb_capstone.instructions import GtirbInstructionDecoder
 from capstone import CsInsn
 from typing import Dict, Iterator
 
 from .module_info import module_is_riscv64, module_is_unsupported_riscv
 
-# RV64GC. Capstone 6 decodes the A, F and D extensions only when their mode flags are set. Teapot's
-# decoders (teapot.arch.decoders) use the same configuration, so both see the same instructions.
-RISCV64_MODE = (capstone.CS_MODE_RISCV64 | capstone.CS_MODE_RISCVC |
-                capstone.CS_MODE_RISCV_A | capstone.CS_MODE_RISCV_FD)
+
+def _riscv_decoder_module():
+    try:
+        return importlib.import_module("gtirb_rewriting.decoder")
+    except ModuleNotFoundError as error:
+        if error.name != "gtirb_rewriting.decoder":
+            raise
+        raise RuntimeError(
+            "RV64 decoding requires the lin-toto/gtirb-rewriting fork with "
+            "gtirb_rewriting.decoder; install the revision pinned by Teapot"
+        ) from error
 
 
 def configure_riscv64(decoder: capstone.Cs) -> capstone.Cs:
-    """Real, uncompressed instructions with complete details.
+    return _riscv_decoder_module().configure_riscv64(decoder)
 
-    Capstone 6's alias details drop the link register of `jal`, `jalr` and `ret` from the operands,
-    the register accesses and the call group; the uncompressed real form lists every operand. A
-    compressed instruction keeps its 2-byte size.
-    """
-    decoder.syntax = capstone.CS_OPT_SYNTAX_UNCOMPRESSED_REAL
-    decoder.option(capstone.CS_OPT_DETAIL, capstone.CS_OPT_ON | capstone.CS_OPT_DETAIL_UNCOMPRESSED_REAL)
-    return decoder
 
+def __getattr__(name):
+    # Preserve the old configuration export without a second definition or
+    # making users of only x64/AArch64 depend on the RISC-V fork API.
+    if name == "RISCV64_MODE":
+        return _riscv_decoder_module().RISCV64_MODE
+    raise AttributeError(name)
 
 class CachedGtirbInstructionDecoder(GtirbInstructionDecoder):
     cache: dict = {}
@@ -49,7 +56,6 @@ class CachedGtirbInstructionDecoder(GtirbInstructionDecoder):
 
         endian = (capstone.CS_MODE_BIG_ENDIAN if block.module and
                   block.module.byte_order == gtirb.Module.ByteOrder.Big else capstone.CS_MODE_LITTLE_ENDIAN)
-        mode = RISCV64_MODE | endian
-        if mode not in self._riscv64_decoders:
-            self._riscv64_decoders[mode] = configure_riscv64(capstone.Cs(capstone.CS_ARCH_RISCV, mode))
-        return self._riscv64_decoders[mode]
+        if endian not in self._riscv64_decoders:
+            self._riscv64_decoders[endian] = _riscv_decoder_module().riscv64_decoder(endian)
+        return self._riscv64_decoders[endian]

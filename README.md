@@ -6,6 +6,15 @@ The gtirb-live-register-analysis package provides a Python API for live register
 A simple interface is also provided for working with [gtirb-rewriting](https://github.com/GrammaTech/gtirb-rewriting/) 
 patches.
 
+For RV64, this fork uses the RV64GC decoder from
+[lin-toto/gtirb-rewriting](https://github.com/lin-toto/gtirb-rewriting), including
+its `gtirb_rewriting.decoder` API (tested at
+`d8664789fa0f7cbed321d5bde60c96234cadb731`). Install the matching rewriting
+fork, as pinned by Teapot, for RV64; unmodified upstream rewriting does not
+provide that decoder. Other ISAs do not import this optional API. The broad
+`gtirb-rewriting>=0.3.0` package requirement does not by itself enable RV64.
+Liveness analysis and rewriting share one RISC-V mode/detail configuration.
+
 ## Supported ABIs
 
 | ISA          | File Format |
