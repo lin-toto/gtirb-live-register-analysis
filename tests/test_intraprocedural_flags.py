@@ -53,6 +53,40 @@ class IntraproceduralFlagsTests(unittest.TestCase):
                 ('90 48 d3 e0 0f 92 c0 c3', [False, True, True, False])): # CL may be zero
             self.check(gtirb.Module.ISA.X64, _X86_64_ELF(), code, expected)
 
+    def check_missing_flag_read(self, instruction, expected_read, expected_kill=None):
+        # XOR defines the incoming flags. A clobbering patch at the NOP must
+        # preserve them for the following reader, even if it also writes flags.
+        code = f'31c0 90 {instruction} c3'
+        self.check(gtirb.Module.ISA.X64, _X86_64_ELF(), code,
+                   [False, True, True, False])
+        ir, module, (block,), function, manager = fixture(
+            gtirb.Module.ISA.X64, _X86_64_ELF(), [code])
+        reader = list(manager.analyzer.decoder.get_instructions(block))[2]
+        read, kill, _ = manager.analyzer.semantics.flag_effects(reader)
+        self.assertEqual(read, expected_read, reader.mnemonic)
+        if expected_kill is not None:
+            self.assertEqual(kill, expected_kill, reader.mnemonic)
+
+    def test_adox_preserves_unresolved_aggregate_read(self):
+        self.check_missing_flag_read('f3480f38f6c1', 63)  # adox rax, rcx
+
+    def test_rcl_reads_carry(self):
+        self.check_missing_flag_read('48d1d0', 1)
+
+    def test_rcr_reads_carry(self):
+        self.check_missing_flag_read('48d1d8', 1)
+
+    def test_cmc_reads_carry(self):
+        self.check_missing_flag_read('f5', 1)
+
+    def test_fcmov_reads_condition_without_killing_integer_flags(self):
+        # CF=1, PF=2, ZF=8 in the six-bit arithmetic-flag mask. The x87
+        # fpu_flags union must not masquerade as integer flag definitions.
+        for code, mask in [('dac1', 1), ('dac9', 8), ('dad1', 9), ('dad9', 2),
+                           ('dbc1', 1), ('dbc9', 8), ('dbd1', 9), ('dbd9', 2)]:
+            with self.subTest(instruction=code):
+                self.check_missing_flag_read(code, mask, expected_kill=0)
+
     def test_aarch64_nzcv(self):
         # nop; cmp x0,x1; cset x0,eq; ret
         self.check(gtirb.Module.ISA.ARM64, _ARM64_ELF(),
