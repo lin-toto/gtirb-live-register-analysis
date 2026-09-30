@@ -45,6 +45,38 @@ class IntraproceduralFlagsTests(unittest.TestCase):
         self.assertTrue(all(abi.flag_register() in v
                             for v in conservative.result_cache[function.uuid][block.uuid]))
 
+    def test_ddisasm_flag_bit_under_its_rule(self):
+        # With liveRegisterFlagRule "call-boundary", DDisasm's flag bit is used
+        # as it is; without it, flags.py recomputes the bit. --conservative-flags
+        # keeps the flags live everywhere. No other register changes.
+        for isa, abi, code in ((gtirb.Module.ISA.X64, _X86_64_ELF(), '90 0f92c0 c3'),
+                               (gtirb.Module.ISA.ARM64, _ARM64_ELF(),
+                                '1f2003d5 e0179f9a c0035fd6')):
+            with self.subTest(isa=isa):
+                ir, module, (block,), function, _ = fixture(isa, abi, [code])
+                flag = abi.flag_register()
+                names = module.aux_data['liveRegisterNames'].data
+                masks = module.aux_data['liveRegisterSets'].data
+                offsets = sorted(masks, key=lambda offset: offset.displacement)
+                bit = 1 << names.index(flag.name)
+                for offset in offsets[:2]:
+                    masks[offset] &= ~bit
+                for rule, conservative, expected in (
+                        ('call-boundary', False, [False, False, True]),
+                        ('call-boundary', True, [True] * 3),
+                        (None, False, [True, True, False]),
+                        ('other', False, [True, True, False])):
+                    module.aux_data.pop('liveRegisterFlagRule', None)
+                    if rule is not None:
+                        module.aux_data['liveRegisterFlagRule'] = gtirb.AuxData(rule, 'string')
+                    manager = LiveRegisterManager(module, abi, conservative_flags=conservative)
+                    manager.analyze(function)
+                    self.assertEqual(manager.analysis_source, 'ddisasm')
+                    values = manager.result_cache[function.uuid][block.uuid]
+                    self.assertEqual([flag in v for v in values], expected, (rule, conservative))
+                    for value in values:
+                        self.assertEqual(value - {flag}, set(abi.all_registers()) - {flag})
+
     def test_per_flag_definitions_and_reads(self):
         for code, expected in (
                 ('90 48 ff c0 0f 90 c0 c3', [0, 0, 32, 0]), # INC kills OF; nothing lives into RET

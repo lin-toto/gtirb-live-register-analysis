@@ -8,6 +8,10 @@ libhtp and jsmn lifts found none. Flags stay precise per flag. A branch into
 another function's blocks, such as GCC's .cold parts, still uses the target's
 reads before its definitions. A missing CFG or an unresolved computed branch
 still keeps every flag live. No GPR/vector masks are changed here.
+
+DDisasm's masks follow the same rule when they carry the liveRegisterFlagRule
+"call-boundary". This analysis recomputes the flags for other masks, such as
+those of older lifts, and for the Python analysis.
 """
 from collections import deque
 

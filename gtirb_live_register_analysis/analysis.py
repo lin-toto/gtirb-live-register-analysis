@@ -60,12 +60,17 @@ class LiveRegisterAnalyzer:
         return self.in_regs
 
     def merge_flags(self, function, registers):
+        """Replace the flag bit with flags.py's liveness, or keep it everywhere."""
+        flag_register = self.abi.flag_register()
         if self.conservative_flags:
+            if flag_register is not None:
+                for instructions in registers.values():
+                    for regs in instructions:
+                        regs.add(flag_register)
             return
         flag_masks = analyze_flags(function, self)
         if flag_masks is None:
             return
-        flag_register = self.abi.flag_register()
         for block_uuid, instructions in registers.items():
             masks = flag_masks.get(block_uuid)
             if masks is None or len(masks) != len(instructions):

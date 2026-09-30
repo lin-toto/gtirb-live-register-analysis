@@ -17,6 +17,10 @@ from .abi import AnalysisAwareABI, abi_for_module
 LIVE_REGISTER_NAMES_AUXDATA = "liveRegisterNames"
 LIVE_REGISTER_SETS_AUXDATA = "liveRegisterSets"
 LIVE_REGISTER_SETS_HIGH_AUXDATA = "liveRegisterSetsHigh"
+LIVE_REGISTER_FLAG_RULE_AUXDATA = "liveRegisterFlagRule"
+# The flags bit of DDisasm's masks follows flags.py only under this rule. Older
+# lifts missed flag reads that Capstone omits, such as FCMOV's and RCL's.
+LIVE_REGISTER_FLAG_RULE = "call-boundary"
 LIVE_REGISTER_NAMES_TYPE = "sequence<string>"
 LIVE_REGISTER_SETS_TYPE = "mapping<Offset,uint64_t>"
 
@@ -105,6 +109,19 @@ class LiveRegisterManager:
                     else:
                         self.module.aux_data.pop(LIVE_REGISTER_SETS_HIGH_AUXDATA)
         self.analysis_source = "ddisasm" if self._metadata_sets is not None else "python"
+        rule = self.module.aux_data.get(LIVE_REGISTER_FLAG_RULE_AUXDATA)
+        self._producer_flags = (self._metadata_sets is not None and rule is not None and
+                                rule.type_name == "string" and rule.data == LIVE_REGISTER_FLAG_RULE)
+        if (self._metadata_sets is not None and not self._producer_flags and
+                not getattr(self, "_flag_rule_warned", False)):
+            self._flag_rule_warned = True
+            warnings.warn(
+                f"module {self.module.name!r}: live-register masks lack "
+                f"{LIVE_REGISTER_FLAG_RULE_AUXDATA} {LIVE_REGISTER_FLAG_RULE!r}; "
+                "recomputing the flags with the Python analysis",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
     def _load_metadata(self) -> Tuple[Optional[List[Register]], Optional[Mapping[gtirb.Offset, int]]]:
         names_aux = self.module.aux_data.get(LIVE_REGISTER_NAMES_AUXDATA)
@@ -217,7 +234,8 @@ class LiveRegisterManager:
                 })
             function_registers[block.uuid] = block_registers
 
-        self.analyzer.merge_flags(function, function_registers)
+        if self.analyzer.conservative_flags or not self._producer_flags:
+            self.analyzer.merge_flags(function, function_registers)
         self.result_cache[function.uuid] = function_registers
 
     def analyze_vectors(self, function: Function):
