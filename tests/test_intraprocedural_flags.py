@@ -47,11 +47,11 @@ class IntraproceduralFlagsTests(unittest.TestCase):
 
     def test_per_flag_definitions_and_reads(self):
         for code, expected in (
-                ('90 48 ff c0 0f 90 c0 c3', [1, 1, 33, 1]), # INC kills OF, returns CF
-                ('90 48 ff c0 0f 92 c0 c3', [1, 1, 1, 1]),  # CF passes through
+                ('90 48 ff c0 0f 90 c0 c3', [0, 0, 32, 0]), # INC kills OF; nothing lives into RET
+                ('90 48 ff c0 0f 92 c0 c3', [1, 1, 1, 0]),  # CF passes through INC to the reader
                 ('90 48 85 c0 9f c3', [0, 0, 31, 0]),       # AF undefined kills
-                ('90 fc a4 c3', [63, 63, 63, 63]),           # DF is not arithmetic
-                ('90 48 d3 e0 0f 92 c0 c3', [63, 63, 63, 63])): # CL may be zero
+                ('90 fc a4 c3', [0, 0, 0, 0]),              # DF is not arithmetic
+                ('90 48 d3 e0 0f 92 c0 c3', [1, 1, 1, 0])): # CL may be zero: CF stays live
             self.check(gtirb.Module.ISA.X64, _X86_64_ELF(), code, list(map(bool, expected)))
             _, _, (block,), function, manager = fixture(
                 gtirb.Module.ISA.X64, _X86_64_ELF(), [code])
@@ -125,18 +125,21 @@ class IntraproceduralFlagsTests(unittest.TestCase):
                 ir.cfg.add(gtirb.Edge(block, external,
                     gtirb.Edge.Label(gtirb.EdgeType.Branch, direct=is_direct)))
                 manager.analyze(function)
-                # The direct tail has not overwritten its entry flags; the
-                # unresolved indirect branch remains all-live independently.
-                self.assertIn(abi.flag_register(),
-                              manager.result_cache[function.uuid][block.uuid][-1])
+                # A direct tail call is an ABI boundary like any call; the
+                # unresolved indirect branch stays all-live: nothing proves where it goes.
+                live = abi.flag_register() in manager.result_cache[function.uuid][block.uuid][-1]
+                self.assertEqual(live, not is_direct)
 
-    def test_local_call_flag_passthrough_and_definitions(self):
+    def test_local_calls_kill_flags(self):
+        # Neither the x86-64 psABI nor AAPCS64 preserves flags across a call, so
+        # whatever the callee does, a flag produced before a local call is dead
+        # after it, and nothing is live into a return.
         for isa, abi, compare, call, reader, nop, ret, partial in (
                 (gtirb.Module.ISA.X64, _X86_64_ELF(), '4839c8', 'e800000000',
                  '0f92c0', '90', 'c3', '48ffc0'),
                 (gtirb.Module.ISA.ARM64, _ARM64_ELF(), '1f0001eb', '00000094',
                  'e0179f9a', '1f2003d5', 'c0035fd6', '00040091')):
-            for leaf, preserves in ((nop, True), (partial, True), (compare, False)):
+            for leaf in (nop, partial, compare):
                 with self.subTest(isa=isa, leaf=leaf):
                     ir, module, blocks, _, manager = fixture(
                         isa, abi, [f'{compare} {nop} {call}', f'{reader} {ret}', f'{leaf} {ret}'])
@@ -145,21 +148,27 @@ class IntraproceduralFlagsTests(unittest.TestCase):
                     ir.cfg.add(gtirb.Edge(blocks[0], blocks[2], gtirb.Edge.Label(gtirb.EdgeType.Call)))
                     ir.cfg.add(gtirb.Edge(blocks[0], blocks[1], gtirb.Edge.Label(gtirb.EdgeType.Fallthrough)))
                     masks = analyze_flags(caller, manager.analyzer)
-                    self.assertEqual(bool(masks[blocks[0].uuid][-1]), preserves)
-                    self.assertEqual(bool(masks[blocks[0].uuid][-2]), preserves)
-                    leaf_masks = analyze_flags(callee, manager.analyzer)[blocks[2].uuid]
-                    self.assertEqual(bool(leaf_masks[-1]), preserves)
-                    # Refresh must discard summaries after an instruction edit.
-                    if leaf == nop:
-                        interval = blocks[2].byte_interval
-                        offset = blocks[2].offset
-                        replacement = bytes.fromhex('f8' if isa == gtirb.Module.ISA.X64 else compare)
-                        interval.contents = (interval.contents[:offset] + replacement +
-                                             interval.contents[offset + len(replacement):])
-                        manager.refresh(preserve_liveness=True)
-                        self.assertFalse(analyze_flags(caller, manager.analyzer)[blocks[0].uuid][-1])
+                    self.assertEqual(masks[blocks[0].uuid][-1], 0)
+                    self.assertEqual(masks[blocks[0].uuid][-2], 0)
+                    self.assertTrue(masks[blocks[1].uuid][0])
+                    self.assertEqual(analyze_flags(callee, manager.analyzer)[blocks[2].uuid][-1], 0)
 
-    def test_callee_kills_must_hold_on_every_path(self):
+    def test_refresh_discards_cached_flag_effects(self):
+        # nop -> clc (x64) or nop -> cmp x0, x1 (AArch64) before a flag reader.
+        for isa, abi, before, writer, reader, ret in (
+                (gtirb.Module.ISA.X64, _X86_64_ELF(), '90', 'f8', '0f92c0', 'c3'),
+                (gtirb.Module.ISA.ARM64, _ARM64_ELF(), '1f2003d5', '1f0001eb', 'e0179f9a', 'c0035fd6')):
+            with self.subTest(isa=isa):
+                ir, module, (block,), function, manager = fixture(isa, abi, [f'{before} {reader} {ret}'])
+                self.assertTrue(analyze_flags(function, manager.analyzer)[block.uuid][0])
+                interval = block.byte_interval
+                replacement = bytes.fromhex(writer)
+                interval.contents = (interval.contents[:block.offset] + replacement +
+                                     interval.contents[block.offset + len(replacement):])
+                manager.refresh(preserve_liveness=True)
+                self.assertFalse(analyze_flags(function, manager.analyzer)[block.uuid][0])
+
+    def test_callees_do_not_carry_flags_on_any_path(self):
         for isa, abi, compare, call, reader, branch, nop, ret in (
                 (gtirb.Module.ISA.X64, _X86_64_ELF(), '4839c8', 'e800000000',
                  '0f92c0', 'e300', '90', 'c3'),
@@ -172,14 +181,15 @@ class IntraproceduralFlagsTests(unittest.TestCase):
                 ir.cfg.add(gtirb.Edge(b[src], b[dst], gtirb.Edge.Label(kind)))
             caller = Function(uuid4(), {b[0]}, set(b[:2]), exitBlocks={b[1]})
             callee = Function(uuid4(), {b[2]}, set(b[2:]), exitBlocks=set(b[3:]))
-            self.assertTrue(analyze_flags(caller, manager.analyzer)[b[0].uuid][-1])
+            self.assertEqual(analyze_flags(caller, manager.analyzer)[b[0].uuid][-1], 0)
             leaves = analyze_flags(callee, manager.analyzer)
             self.assertEqual(leaves[b[3].uuid][-1], 0)
-            self.assertTrue(leaves[b[4].uuid][-1])
+            self.assertEqual(leaves[b[4].uuid][-1], 0)
 
-    def test_internal_tail_and_recursive_passthrough(self):
-        # Recursive calls must not create a spurious must-write proof. The
-        # bypass path returns with all flags unchanged; the other path recurses.
+    def test_internal_tail_and_recursive_calls(self):
+        # A recursive call and a direct tail transfer into another function
+        # both leave no flag live: the call kills them, and the tail target
+        # reads none before its own definitions.
         ir, _, b, _, manager = fixture(gtirb.Module.ISA.X64, _X86_64_ELF(),
             ['e300', 'e800000000', 'c3', '90 c3', 'e900000000'])
         for src, dst, kind in ((0, 3, gtirb.EdgeType.Branch), (0, 1, gtirb.EdgeType.Fallthrough),
@@ -188,8 +198,8 @@ class IntraproceduralFlagsTests(unittest.TestCase):
             ir.cfg.add(gtirb.Edge(b[src], b[dst], gtirb.Edge.Label(kind)))
         recursive = Function(uuid4(), {b[0]}, set(b[:4]), exitBlocks={b[2], b[3]})
         tail = Function(uuid4(), {b[4]}, {b[4]}, exitBlocks={b[4]})
-        self.assertEqual(analyze_flags(recursive, manager.analyzer)[b[1].uuid], [63])
-        self.assertEqual(analyze_flags(tail, manager.analyzer)[b[4].uuid], [63])
+        self.assertEqual(analyze_flags(recursive, manager.analyzer)[b[1].uuid], [0])
+        self.assertEqual(analyze_flags(tail, manager.analyzer)[b[4].uuid], [0])
 
 
 if __name__ == '__main__':
